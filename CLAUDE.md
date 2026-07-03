@@ -53,7 +53,15 @@ several categories).
   (`selected: true` nodes win; count-less breadcrumb entries are
   ignored). Category URLs come from the homepage top nav by visible link
   text. Kampanjer/Varemerker/Outlet are deliberately excluded.
-- `antonsport`, `intersport`, `sport1` — `NotImplementedError` stubs.
+- `sport1` — each category page (e.g. /klaer) renders the site's own
+  total above the grid: `<span class="text-secondary">N</span>
+  produkter`. That label is read directly (poll up to 30s; body-text
+  fallback on the same pattern). Category URLs come from the homepage
+  top nav by visible link text; Nyheter/Merker/Kampanjer/Outlet are
+  deliberately excluded. No known whole-catalog page → the `all` row is
+  an error row by design (summing overlapping categories would
+  overcount).
+- `antonsport`, `intersport` — `NotImplementedError` stubs.
   Check for a catalog API in the browser Network tab first (filter
   "api"); only fall back to DOM counting via the helpers in
   `_common.py`.
@@ -122,4 +130,4 @@ For a different egress network or heavier iteration, dispatch
 - `xxl` — xxl.no (intercepted eSales API, categories + all)
 - `antonsport` — antonsport.no (stub)
 - `intersport` — intersport.no (stub)
-- `sport1` — sport1.no (stub)
+- `sport1` — sport1.no (rendered "N produkter" label, per-category only; no site-wide total)
