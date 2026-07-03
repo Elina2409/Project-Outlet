@@ -1,4 +1,4 @@
-from . import antonsport, intersport, sport1, sportoutlet, xxl
+from . import antonsport, fjellsport, intersport, sport1, sportoutlet, xxl
 
 # Each module exports get_sku_count(page) for the whole catalog, and may
 # optionally export either get_category_counts(page) -> {name: count}
@@ -10,4 +10,5 @@ SITES = [
     ("antonsport", antonsport),
     ("intersport", intersport),
     ("sport1", sport1),
+    ("fjellsport", fjellsport),
 ]

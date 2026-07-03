@@ -14,6 +14,7 @@ cron line in the scrape workflow can be uncommented for scheduled runs.
 | `scrapers/_common.py` | Shared helpers: headless browser launch, consent-banner dismissal, scroll/pagination tile counters, CSV writer (with in-place schema migration). |
 | `scrapers/<site>.py` | One module per site key. Exports `get_sku_count(page)`; optionally `get_category_counts(page)` (direct counts, e.g. API) or `get_categories(page)` + `get_sku_count(page, url)` (per-URL counting). |
 | `debug_page.py` | Diagnostics: loads a URL in the same headless browser and dumps title, buttons, imgs/links, category-name DOM shapes, intercepted apptus API label/count pairs, and the Sport Outlet categories API. Saves screenshot + HTML. |
+| `probe_source.py` | Diagnostics for unreachable sites: dumps where a page's category/count data lives (script JSON blobs, count-keyed fields, nav links, term contexts). Run it in Cloud Run via `deploy.yml`'s `probe_url` input and read the run log. |
 | `.github/workflows/scrape-sku.yml` | Manual-dispatch scrape on a GitHub runner; commits `data/`. Cron line included but commented out. |
 | `.github/workflows/deploy.yml` | Dispatch-only GCP fallback: build image → deploy Cloud Run Job → optionally execute and print logs. Placeholders until `setup-gcp-wif.sh` output is pasted in. |
 | `setup-gcp-wif.sh` | One-time, idempotent GCP setup (WIF keyless auth, service accounts, roles). |
@@ -61,6 +62,13 @@ several categories).
   deliberately excluded. No known whole-catalog page → the `all` row is
   an error row by design (summing overlapping categories would
   overcount).
+- `fjellsport` — the homepage source embeds the full category tree with
+  `"url":"/X","name":"N","productCount":C` per node (subcategories
+  included). One plain HTTP fetch, no rendering. The six nav categories
+  are pinned by URL path (`/herreklaer`, `/dameklaer`, `/turutstyr`,
+  `/fottoy`, `/barn`, `/aktiviteter`); SALG/Nyheter/Fjellsportpris/
+  Outlet/Varemerker excluded. No known site total → `all` is an error
+  row by design.
 - `antonsport`, `intersport` — `NotImplementedError` stubs.
   Check for a catalog API in the browser Network tab first (filter
   "api"); only fall back to DOM counting via the helpers in
@@ -131,3 +139,4 @@ For a different egress network or heavier iteration, dispatch
 - `antonsport` — antonsport.no (stub)
 - `intersport` — intersport.no (stub)
 - `sport1` — sport1.no (rendered "N produkter" label, per-category only; no site-wide total)
+- `fjellsport` — fjellsport.no (embedded productCount tree in homepage source, per-category only; no site-wide total)
