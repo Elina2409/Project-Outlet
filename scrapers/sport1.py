@@ -59,13 +59,23 @@ def get_categories(page: Page) -> dict[str, str]:
     dismiss_cookie_banner(page)
     page.wait_for_timeout(2000)
     anchors = page.eval_on_selector_all(
-        "a[href]", "els => els.map(e => ({text: e.innerText.trim(), href: e.href}))"
+        "a[href]",
+        "els => els.map(e => ({text: e.innerText.trim(), "
+        "aria: e.getAttribute('aria-label') || '', href: e.href}))",
     )
     resolved: dict[str, str] = {}
     for anchor in anchors:
-        key = _norm(anchor["text"])
-        if key in wanted and wanted[key] not in resolved and "sport1.no" in anchor["href"]:
-            resolved[wanted[key]] = anchor["href"]
+        if "sport1.no" not in anchor["href"]:
+            continue
+        # A nav anchor that wraps a dropdown menu carries the submenu
+        # text in innerText too (that broke Sykkel and Trening & Helse
+        # on the first live run) - the label itself is the first line.
+        first_line = anchor["text"].splitlines()[0] if anchor["text"] else ""
+        for candidate in (anchor["text"], first_line, anchor["aria"]):
+            key = _norm(candidate)
+            if key in wanted and wanted[key] not in resolved:
+                resolved[wanted[key]] = anchor["href"]
+                break
     if not resolved:
         raise ScrapeError(f"no category links found in the top navigation of {HOME_URL}")
     return resolved
