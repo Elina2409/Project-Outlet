@@ -69,10 +69,13 @@ several categories).
   `/turutstyr`, `/fottoy`, `/barn`). SALG/Nyheter/Fjellsportpris/
   Outlet/Varemerker/Aktiviteter excluded — Aktiviteter regroups ~88% of
   the catalog by activity (15727 vs ~17940 summed, 2026-07-03). `all`
-  is the count of unique `/produkter/` URLs across the product sitemap
-  files (index at `/api/sitemap/nb-no/sitemapindex.xml`, named by
-  robots.txt) — the only genuinely deduplicated site total in the
-  tracker; expect it to differ from the category sum.
+  is the count of unique canonical product pages
+  (`/merker/<brand>/<slug>`, depth ≥ 3 under `/merker/`) across the
+  sitemap files (index at `/api/sitemap/nb-no/sitemapindex.xml`, named
+  by robots.txt) — the only genuinely deduplicated site total in the
+  tracker. Product slugs can encode color variants, so it may exceed
+  the category tree's counts; robots.txt's `Disallow: /produkter/` does
+  NOT match the canonical product URLs.
 - `antonsport`, `intersport` — `NotImplementedError` stubs.
   Check for a catalog API in the browser Network tab first (filter
   "api"); only fall back to DOM counting via the helpers in

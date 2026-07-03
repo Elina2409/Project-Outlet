@@ -16,11 +16,15 @@ cross-cutting views, not assortment categories, and are deliberately
 excluded (Aktiviteter counted ~88% of the summed catalog when checked).
 
 The "all" row is a genuinely deduplicated total: the count of unique
-/produkter/ URLs across the product sitemap files. robots.txt names the
-sitemap index (/api/sitemap/nb-no/sitemapindex.xml, 3 files verified
-2026-07-03) and puts product detail pages under /produkter/. Sitemaps
-list each product page exactly once (they exist for Google), so unlike
-the per-category counts this number has no overlap in it.
+canonical product pages across the sitemap files (index at
+/api/sitemap/nb-no/sitemapindex.xml, named by robots.txt). A full URL
+census (2026-07-03) showed product pages live at
+/merker/<brand>/<product-slug> - 22205 of 23513 sitemap URLs sit under
+/merker/, with brand listing pages at depth 2 and products at depth 3+;
+all other prefixes are listing/content pages in the hundreds. Sitemaps
+list each page once, so this number has no category overlap in it -
+but product slugs can encode color variants, so it may run higher than
+the catalog tree's per-product counts.
 """
 from __future__ import annotations
 
@@ -60,8 +64,9 @@ _CATEGORY_NODE_RE = re.compile(
 
 
 def get_sku_count(page: Page) -> int:
-    """Deduplicated whole-catalog count: unique /produkter/ URLs across
-    the product sitemap files listed by the sitemap index."""
+    """Deduplicated whole-catalog count: unique canonical product pages
+    (/merker/<brand>/<product-slug>, i.e. depth >= 3 under /merker/)
+    across the sitemap files listed by the sitemap index."""
     index = page.request.get(SITEMAP_INDEX_URL).text()
     sitemap_urls = _SITEMAP_LOC_RE.findall(index)
     if not sitemap_urls:
@@ -70,11 +75,14 @@ def get_sku_count(page: Page) -> int:
     for sitemap_url in sitemap_urls:
         xml = page.request.get(sitemap_url).text()
         for loc in _SITEMAP_LOC_RE.findall(xml):
-            if "/produkter/" in loc:
-                products.add(loc.split("?")[0])
+            path = loc.split("?")[0].split("://", 1)[-1]
+            parts = [p for p in path.split("/") if p][1:]  # drop the host
+            if len(parts) >= 3 and parts[0] == "merker":
+                products.add("/".join(parts))
     if not products:
         raise ScrapeError(
-            f"no /produkter/ URLs found across {len(sitemap_urls)} sitemap files"
+            f"no /merker/<brand>/<product> URLs found across "
+            f"{len(sitemap_urls)} sitemap files"
         )
     return len(products)
 
