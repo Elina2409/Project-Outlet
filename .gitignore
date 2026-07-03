@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+debug_screenshot.png
+debug_page.html
+# data/ is committed - the CSV in the repo IS the tracker output,
+# written by the scrape-sku workflow's bot commits.
