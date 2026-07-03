@@ -68,8 +68,11 @@ several categories).
   categories pinned by URL path (`/herreklaer`, `/dameklaer`,
   `/turutstyr`, `/fottoy`, `/barn`). SALG/Nyheter/Fjellsportpris/
   Outlet/Varemerker/Aktiviteter excluded — Aktiviteter regroups ~88% of
-  the catalog by activity (15727 vs ~17940 summed, 2026-07-03). No
-  known site total → `all` is an error row by design.
+  the catalog by activity (15727 vs ~17940 summed, 2026-07-03). `all`
+  is the count of unique `/produkter/` URLs across the product sitemap
+  files (index at `/api/sitemap/nb-no/sitemapindex.xml`, named by
+  robots.txt) — the only genuinely deduplicated site total in the
+  tracker; expect it to differ from the category sum.
 - `antonsport`, `intersport` — `NotImplementedError` stubs.
   Check for a catalog API in the browser Network tab first (filter
   "api"); only fall back to DOM counting via the helpers in
@@ -140,4 +143,4 @@ For a different egress network or heavier iteration, dispatch
 - `antonsport` — antonsport.no (stub)
 - `intersport` — intersport.no (stub)
 - `sport1` — sport1.no (rendered "N produkter" label, per-category only; no site-wide total)
-- `fjellsport` — fjellsport.no (embedded productCount tree in homepage source, per-category only; no site-wide total)
+- `fjellsport` — fjellsport.no (embedded productCount tree in homepage source; deduplicated site total from the product sitemap)

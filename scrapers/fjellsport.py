@@ -15,8 +15,12 @@ SALG/Nyheter/Fjellsportpris/Outlet/Varemerker/Aktiviteter are
 cross-cutting views, not assortment categories, and are deliberately
 excluded (Aktiviteter counted ~88% of the summed catalog when checked).
 
-No whole-catalog page or site-total field is known, so the "all" row is
-an error row by design; summing categories would overcount.
+The "all" row is a genuinely deduplicated total: the count of unique
+/produkter/ URLs across the product sitemap files. robots.txt names the
+sitemap index (/api/sitemap/nb-no/sitemapindex.xml, 3 files verified
+2026-07-03) and puts product detail pages under /produkter/. Sitemaps
+list each product page exactly once (they exist for Google), so unlike
+the per-category counts this number has no overlap in it.
 """
 from __future__ import annotations
 
@@ -27,6 +31,11 @@ from playwright.sync_api import Page
 from ._common import ScrapeError
 
 HOME_URL = "https://www.fjellsport.no/"
+SITEMAP_INDEX_URL = "https://www.fjellsport.no/api/sitemap/nb-no/sitemapindex.xml"
+
+# <loc> only - deliberately does not match namespaced tags like
+# <image:loc>.
+_SITEMAP_LOC_RE = re.compile(r"<loc>([^<]+)</loc>")
 
 # Nav display name -> URL path of that category's node in the embedded
 # tree. Paths verified live; the display names are the nav labels.
@@ -51,9 +60,23 @@ _CATEGORY_NODE_RE = re.compile(
 
 
 def get_sku_count(page: Page) -> int:
-    raise ScrapeError(
-        "fjellsport.no has no known whole-catalog page - counts are per category"
-    )
+    """Deduplicated whole-catalog count: unique /produkter/ URLs across
+    the product sitemap files listed by the sitemap index."""
+    index = page.request.get(SITEMAP_INDEX_URL).text()
+    sitemap_urls = _SITEMAP_LOC_RE.findall(index)
+    if not sitemap_urls:
+        raise ScrapeError(f"no sitemap files listed at {SITEMAP_INDEX_URL}")
+    products: set[str] = set()
+    for sitemap_url in sitemap_urls:
+        xml = page.request.get(sitemap_url).text()
+        for loc in _SITEMAP_LOC_RE.findall(xml):
+            if "/produkter/" in loc:
+                products.add(loc.split("?")[0])
+    if not products:
+        raise ScrapeError(
+            f"no /produkter/ URLs found across {len(sitemap_urls)} sitemap files"
+        )
+    return len(products)
 
 
 def get_category_counts(page: Page) -> dict[str, int]:
