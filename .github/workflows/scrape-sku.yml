@@ -45,5 +45,3 @@ jobs:
             git commit -m "SKU counts $(date -u +%F)"
             git push
           fi
-
-# (workflow re-indexed after initial push)
