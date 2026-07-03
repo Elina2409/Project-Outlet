@@ -25,3 +25,28 @@ timestamp_utc,site,category,sku_count,status,note
 2026-07-03T10:27:39+00:00,antonsport,all,,error,antonsport scraper not yet configured - see TODO in scrapers/antonsport.py
 2026-07-03T10:27:39+00:00,intersport,all,,error,intersport scraper not yet configured - see TODO in scrapers/intersport.py
 2026-07-03T10:27:39+00:00,sport1,all,,error,sport1 scraper not yet configured - see TODO in scrapers/sport1.py
+2026-07-03T10:30:45+00:00,sportoutlet,all,8051,ok,
+2026-07-03T10:30:45+00:00,sportoutlet,Klær,4286,ok,
+2026-07-03T10:30:45+00:00,sportoutlet,Sko,1781,ok,
+2026-07-03T10:30:45+00:00,sportoutlet,Friluft og camping,549,ok,
+2026-07-03T10:30:45+00:00,sportoutlet,Sportsutstyr,260,ok,
+2026-07-03T10:30:45+00:00,sportoutlet,Trimutstyr,235,ok,
+2026-07-03T10:30:45+00:00,sportoutlet,Fiskeutstyr,381,ok,
+2026-07-03T10:30:45+00:00,sportoutlet,Mat og drikke,85,ok,
+2026-07-03T10:30:45+00:00,sportoutlet,Vintersport,129,ok,
+2026-07-03T10:30:45+00:00,sportoutlet,Lagsport,115,ok,
+2026-07-03T10:30:45+00:00,sportoutlet,Sykkel,127,ok,
+2026-07-03T10:30:45+00:00,sportoutlet,Kjæledyr,103,ok,
+2026-07-03T10:30:45+00:00,xxl,all,23238,ok,
+2026-07-03T10:30:45+00:00,xxl,Løping,2605,ok,
+2026-07-03T10:30:45+00:00,xxl,Sykkel,1640,ok,
+2026-07-03T10:30:45+00:00,xxl,Vannsport,350,ok,
+2026-07-03T10:30:45+00:00,xxl,Dame,4223,ok,
+2026-07-03T10:30:45+00:00,xxl,Herre,6174,ok,
+2026-07-03T10:30:45+00:00,xxl,Barn,2143,ok,
+2026-07-03T10:30:45+00:00,xxl,Sport,10571,ok,
+2026-07-03T10:30:45+00:00,xxl,Turutstyr,1217,ok,
+2026-07-03T10:30:45+00:00,xxl,Jakt & Fiske,3118,ok,
+2026-07-03T10:30:45+00:00,antonsport,all,,error,antonsport scraper not yet configured - see TODO in scrapers/antonsport.py
+2026-07-03T10:30:45+00:00,intersport,all,,error,intersport scraper not yet configured - see TODO in scrapers/intersport.py
+2026-07-03T10:30:45+00:00,sport1,all,,error,sport1 scraper not yet configured - see TODO in scrapers/sport1.py
