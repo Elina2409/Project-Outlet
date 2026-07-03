@@ -8,11 +8,12 @@ url/name/productCount key order on every node, subcategories included).
 Counts are read straight from that embedded JSON via a plain HTTP fetch
 of the homepage - no page rendering or navigation at all.
 
-The six top-level categories are pinned by URL path, verified from the
-rendered top nav: Herre /herreklaer, Dame /dameklaer, Utstyr /turutstyr,
-Sko og støvler /fottoy, Barn /barn, Aktiviteter /aktiviteter.
-SALG/Nyheter/Fjellsportpris/Outlet/Varemerker are cross-cutting views,
-not assortment categories, and are deliberately excluded.
+The five top-level assortment categories are pinned by URL path,
+verified from the rendered top nav: Herre /herreklaer, Dame /dameklaer,
+Utstyr /turutstyr, Sko og støvler /fottoy, Barn /barn.
+SALG/Nyheter/Fjellsportpris/Outlet/Varemerker/Aktiviteter are
+cross-cutting views, not assortment categories, and are deliberately
+excluded (Aktiviteter counted ~88% of the summed catalog when checked).
 
 No whole-catalog page or site-total field is known, so the "all" row is
 an error row by design; summing categories would overcount.
@@ -29,13 +30,16 @@ HOME_URL = "https://www.fjellsport.no/"
 
 # Nav display name -> URL path of that category's node in the embedded
 # tree. Paths verified live; the display names are the nav labels.
+# Aktiviteter (/aktiviteter) is excluded despite being in the nav: its
+# count came back as 15727 on 2026-07-03 vs ~17940 summed over the five
+# assortment trees, i.e. it re-groups nearly the whole catalog by
+# activity - a cross-cutting view like SALG/Outlet, not an assortment.
 CATEGORY_PATHS = {
     "Herre": "/herreklaer",
     "Dame": "/dameklaer",
     "Utstyr": "/turutstyr",
     "Sko og støvler": "/fottoy",
     "Barn": "/barn",
-    "Aktiviteter": "/aktiviteter",
 }
 CATEGORY_NAMES = list(CATEGORY_PATHS)
 

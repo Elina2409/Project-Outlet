@@ -50,6 +50,12 @@ def main() -> None:
         raw = page.request.get(url).text()
         print(f"=== raw source: {url} ({len(raw)} chars) ===")
 
+        if "<html" not in raw[:2000].lower():
+            # Not an HTML page (sitemap XML, robots.txt, JSON, ...):
+            # the document head is the useful part, dump it directly.
+            print("\n--- non-HTML document, first 3000 chars ---")
+            print(raw[:3000])
+
         print("\n--- <script> blobs ---")
         for i, match in enumerate(_SCRIPT_RE.finditer(raw)):
             attrs, body = match.group(1).strip(), match.group(2).strip()

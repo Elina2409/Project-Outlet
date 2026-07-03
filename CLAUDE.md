@@ -64,11 +64,12 @@ several categories).
   overcount).
 - `fjellsport` — the homepage source embeds the full category tree with
   `"url":"/X","name":"N","productCount":C` per node (subcategories
-  included). One plain HTTP fetch, no rendering. The six nav categories
-  are pinned by URL path (`/herreklaer`, `/dameklaer`, `/turutstyr`,
-  `/fottoy`, `/barn`, `/aktiviteter`); SALG/Nyheter/Fjellsportpris/
-  Outlet/Varemerker excluded. No known site total → `all` is an error
-  row by design.
+  included). One plain HTTP fetch, no rendering. Five assortment
+  categories pinned by URL path (`/herreklaer`, `/dameklaer`,
+  `/turutstyr`, `/fottoy`, `/barn`). SALG/Nyheter/Fjellsportpris/
+  Outlet/Varemerker/Aktiviteter excluded — Aktiviteter regroups ~88% of
+  the catalog by activity (15727 vs ~17940 summed, 2026-07-03). No
+  known site total → `all` is an error row by design.
 - `antonsport`, `intersport` — `NotImplementedError` stubs.
   Check for a catalog API in the browser Network tab first (filter
   "api"); only fall back to DOM counting via the helpers in
