@@ -38,6 +38,16 @@ CATEGORY_NAMES = [
     "Trening & Helse",
 ]
 
+# Categories the homepage nav doesn't expose as plain text-labeled
+# anchors (both text and aria-label matching failed on live runs).
+# URLs confirmed live by the user, 2026-07-03 - note the "-and-" slug,
+# which could never be derived from the nav text. Used only for
+# categories the nav scan leaves unresolved.
+FALLBACK_URLS = {
+    "Sykkel": "https://www.sport1.no/sykkel",
+    "Trening & Helse": "https://www.sport1.no/trening-and-helse",
+}
+
 # "<count> produkter" - the count may carry thousands separators
 # (regular/non-breaking/narrow space, or dot).
 _PRODUKTER_RE = re.compile(r"(\d[\d\u00a0\u202f .]*)\s*produkter\b", re.IGNORECASE)
@@ -76,6 +86,8 @@ def get_categories(page: Page) -> dict[str, str]:
             if key in wanted and wanted[key] not in resolved:
                 resolved[wanted[key]] = anchor["href"]
                 break
+    for name, url in FALLBACK_URLS.items():
+        resolved.setdefault(name, url)
     if not resolved:
         raise ScrapeError(f"no category links found in the top navigation of {HOME_URL}")
     return resolved
