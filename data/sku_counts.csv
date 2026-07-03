@@ -1,0 +1,27 @@
+timestamp_utc,site,category,sku_count,status,note
+2026-07-03T10:27:39+00:00,sportoutlet,all,,error,"APIRequestContext.get: Timeout 30000ms exceeded. Call log: - → GET https://sportoutlet.no/api/v1/categories - user-agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Geck"
+2026-07-03T10:27:39+00:00,sportoutlet,(categories),,error,category counts failed: APIRequestContext.get: Timeout 30000ms exceeded. Call log: - → GET https://sportoutlet.no/api/v1/categories - user-agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/
+2026-07-03T10:27:39+00:00,sportoutlet,Klær,,error,category missing from source
+2026-07-03T10:27:39+00:00,sportoutlet,Sko,,error,category missing from source
+2026-07-03T10:27:39+00:00,sportoutlet,Friluft og camping,,error,category missing from source
+2026-07-03T10:27:39+00:00,sportoutlet,Sportsutstyr,,error,category missing from source
+2026-07-03T10:27:39+00:00,sportoutlet,Trimutstyr,,error,category missing from source
+2026-07-03T10:27:39+00:00,sportoutlet,Fiskeutstyr,,error,category missing from source
+2026-07-03T10:27:39+00:00,sportoutlet,Mat og drikke,,error,category missing from source
+2026-07-03T10:27:39+00:00,sportoutlet,Vintersport,,error,category missing from source
+2026-07-03T10:27:39+00:00,sportoutlet,Lagsport,,error,category missing from source
+2026-07-03T10:27:39+00:00,sportoutlet,Sykkel,,error,category missing from source
+2026-07-03T10:27:39+00:00,sportoutlet,Kjæledyr,,error,category missing from source
+2026-07-03T10:27:39+00:00,xxl,all,2605,ok,
+2026-07-03T10:27:39+00:00,xxl,Løping,2605,ok,
+2026-07-03T10:27:39+00:00,xxl,Sykkel,1640,ok,
+2026-07-03T10:27:39+00:00,xxl,Vannsport,350,ok,
+2026-07-03T10:27:39+00:00,xxl,Dame,4223,ok,
+2026-07-03T10:27:39+00:00,xxl,Herre,6174,ok,
+2026-07-03T10:27:39+00:00,xxl,Barn,2143,ok,
+2026-07-03T10:27:39+00:00,xxl,Sport,10571,ok,
+2026-07-03T10:27:39+00:00,xxl,Turutstyr,1217,ok,
+2026-07-03T10:27:39+00:00,xxl,Jakt & Fiske,3118,ok,
+2026-07-03T10:27:39+00:00,antonsport,all,,error,antonsport scraper not yet configured - see TODO in scrapers/antonsport.py
+2026-07-03T10:27:39+00:00,intersport,all,,error,intersport scraper not yet configured - see TODO in scrapers/intersport.py
+2026-07-03T10:27:39+00:00,sport1,all,,error,sport1 scraper not yet configured - see TODO in scrapers/sport1.py
