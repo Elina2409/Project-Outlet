@@ -1,0 +1,47 @@
+# On-demand SKU snapshot on a GitHub runner; commits data/ back to the repo.
+# Run it from the Actions tab ("Run workflow") on any branch - or enable the
+# cron below for scheduled runs (remember: schedules only fire from the
+# repo's DEFAULT branch).
+name: Scrape SKU counts
+
+on:
+  workflow_dispatch:
+  # schedule:
+  #   - cron: "17 5 * * 1"   # Mondays 05:17 UTC - uncomment to schedule
+
+permissions:
+  contents: write
+
+concurrency: scrape-sku
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          playwright install --with-deps chromium
+
+      - name: Scrape
+        run: python main.py
+
+      - name: Commit data
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/
+          if git diff --cached --quiet; then
+            echo "No data changes to commit"
+          else
+            git commit -m "SKU counts $(date -u +%F)"
+            git push
+          fi
