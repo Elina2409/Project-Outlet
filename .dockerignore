@@ -1,0 +1,13 @@
+.git
+.github
+.gitignore
+data/
+__pycache__/
+*.pyc
+.venv/
+venv/
+debug_screenshot.png
+debug_page.html
+Dockerfile
+setup-gcp-wif.sh
+SETUP.md

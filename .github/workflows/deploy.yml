@@ -1,0 +1,92 @@
+# Dispatch-only GCP fallback (Tier 2): build the scraper image, deploy it
+# as a Cloud Run Job, optionally execute it and print the job's logs into
+# this run. Auth is keyless (Workload Identity Federation) - run
+# setup-gcp-wif.sh once in Cloud Shell and paste the values it prints over
+# the UPPERCASE placeholders below. They are identifiers, not secrets.
+#
+# The Cloud Run container is ephemeral: the CSV it writes is discarded.
+# This path exists for log-based trial and error on a different egress
+# network; data persistence stays on scrape-sku.yml (bot commits).
+name: Deploy to Cloud Run (GCP fallback)
+
+on:
+  workflow_dispatch:
+    inputs:
+      execute:
+        description: "Execute the job after deploying and print its logs"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  id-token: write # OIDC token for keyless GCP auth
+
+concurrency: deploy-cloud-run
+
+env:
+  PROJECT_ID: YOUR_PROJECT_ID # <- from setup-gcp-wif.sh output
+  REGION: YOUR_REGION # <- from setup-gcp-wif.sh output
+  JOB_NAME: sku-scraper
+  AR_REPO: scrapers
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: google-github-actions/auth@v2
+        with:
+          # <- both values below come from setup-gcp-wif.sh output
+          workload_identity_provider: projects/YOUR_PROJECT_NUMBER/locations/global/workloadIdentityPools/github/providers/github-oidc
+          service_account: github-deployer@YOUR_PROJECT_ID.iam.gserviceaccount.com
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Build and push image
+        run: |
+          IMAGE="$REGION-docker.pkg.dev/$PROJECT_ID/$AR_REPO/$JOB_NAME:${GITHUB_SHA::12}"
+          echo "IMAGE=$IMAGE" >> "$GITHUB_ENV"
+          gcloud auth configure-docker "$REGION-docker.pkg.dev" --quiet
+          docker build -t "$IMAGE" .
+          docker push "$IMAGE"
+
+      - name: Deploy Cloud Run Job
+        run: |
+          gcloud run jobs deploy "$JOB_NAME" \
+            --image "$IMAGE" \
+            --region "$REGION" \
+            --service-account "scraper-runner@$PROJECT_ID.iam.gserviceaccount.com" \
+            --cpu 2 --memory 2Gi \
+            --task-timeout 45m \
+            --max-retries 0
+
+      - name: Execute job
+        if: inputs.execute
+        run: |
+          # Start async so we always know the execution name, then poll:
+          # a failed run must still reach the log-print step below.
+          EXECUTION=$(gcloud run jobs execute "$JOB_NAME" --region "$REGION" \
+            --async --format='value(metadata.name)')
+          echo "Execution: $EXECUTION"
+          echo "EXECUTION=$EXECUTION" >> "$GITHUB_ENV"
+          while true; do
+            DONE=$(gcloud run jobs executions describe "$EXECUTION" \
+              --region "$REGION" --format='value(status.completionTime)')
+            [ -n "$DONE" ] && break
+            sleep 15
+          done
+          SUCCEEDED=$(gcloud run jobs executions describe "$EXECUTION" \
+            --region "$REGION" --format='value(status.succeededCount)')
+          echo "succeededCount=${SUCCEEDED:-0}"
+          [ "${SUCCEEDED:-0}" -ge 1 ]
+
+      - name: Print job logs
+        if: always() && env.EXECUTION != ''
+        run: |
+          sleep 20 # give Cloud Logging time to ingest the tail
+          gcloud logging read \
+            "resource.type=cloud_run_job AND labels.\"run.googleapis.com/execution_name\"=\"$EXECUTION\"" \
+            --project "$PROJECT_ID" --order=asc --limit=1000 \
+            --format='value(textPayload)'
