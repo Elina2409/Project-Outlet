@@ -29,6 +29,7 @@ from scrapers._common import browser_page, dismiss_cookie_banner
 _SCRIPT_RE = re.compile(
     r"<script([^>]*)>(.*?)</script>", re.IGNORECASE | re.DOTALL
 )
+_LOC_RE = re.compile(r"<loc>([^<]+)</loc>")
 _COUNT_KEY_RE = re.compile(
     r'"[^"]*(?:count|hits|antall|numberofproducts|totalproducts)[^"]*"\s*:\s*\d+',
     re.IGNORECASE,
@@ -55,6 +56,36 @@ def main() -> None:
             # the document head is the useful part, dump it directly.
             print("\n--- non-HTML document, first 3000 chars ---")
             print(raw[:3000])
+
+        if "<sitemapindex" in raw[:2000]:
+            # Fetch every child sitemap and break all URLs down by first
+            # path segment - shows at a glance where product pages live
+            # and what they look like.
+            print("\n--- sitemap index: URL breakdown across child sitemaps ---")
+            from collections import Counter
+
+            seg_counts: Counter = Counter()
+            samples: dict[str, list[str]] = {}
+            for child in _LOC_RE.findall(raw):
+                xml = page.request.get(child).text()
+                locs = _LOC_RE.findall(xml)
+                print(f"{child}: {len(locs)} URLs")
+                for loc in locs:
+                    path = re.sub(r"https?://[^/]+", "", loc).split("?")[0]
+                    parts = [p for p in path.split("/") if p]
+                    seg = "/" + parts[0] if parts else "/"
+                    seg_counts[seg] += 1
+                    samples.setdefault(seg, []).append(loc)
+            print(
+                f"total URLs: {sum(seg_counts.values())}, "
+                f"distinct first segments: {len(seg_counts)}"
+            )
+            for seg, n in seg_counts.most_common(30):
+                first, last = samples[seg][0], samples[seg][-1]
+                print(f"  {seg:<28} {n:>7}")
+                print(f"      first: {first}")
+                if last != first:
+                    print(f"      last : {last}")
 
         print("\n--- <script> blobs ---")
         for i, match in enumerate(_SCRIPT_RE.finditer(raw)):
