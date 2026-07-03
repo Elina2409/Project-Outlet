@@ -24,8 +24,8 @@ permissions:
 concurrency: deploy-cloud-run
 
 env:
-  PROJECT_ID: YOUR_PROJECT_ID # <- from setup-gcp-wif.sh output
-  REGION: YOUR_REGION # <- from setup-gcp-wif.sh output
+  PROJECT_ID: project-db45141a-06ef-4e1b-8ff
+  REGION: europe-north1
   JOB_NAME: sku-scraper
   AR_REPO: scrapers
 
@@ -38,9 +38,9 @@ jobs:
 
       - uses: google-github-actions/auth@v2
         with:
-          # <- both values below come from setup-gcp-wif.sh output
+          # <- YOUR_PROJECT_NUMBER comes from setup-gcp-wif.sh output
           workload_identity_provider: projects/YOUR_PROJECT_NUMBER/locations/global/workloadIdentityPools/github/providers/github-oidc
-          service_account: github-deployer@YOUR_PROJECT_ID.iam.gserviceaccount.com
+          service_account: github-deployer@project-db45141a-06ef-4e1b-8ff.iam.gserviceaccount.com
 
       - uses: google-github-actions/setup-gcloud@v2
 
