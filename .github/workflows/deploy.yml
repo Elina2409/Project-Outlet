@@ -16,6 +16,10 @@ on:
         description: "Execute the job after deploying and print its logs"
         type: boolean
         default: true
+      probe_url:
+        description: "Run probe_source.py against this URL instead of the scrape (diagnostics only)"
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -53,13 +57,23 @@ jobs:
 
       - name: Deploy Cloud Run Job
         run: |
+          # probe_url switches the job to the source-probe diagnostic;
+          # the command is set explicitly either way so a probe deploy
+          # can't linger into the next scrape deploy.
+          if [ -n "${{ inputs.probe_url }}" ]; then
+            ARGS="probe_source.py,${{ inputs.probe_url }}"
+          else
+            ARGS="main.py"
+          fi
           gcloud run jobs deploy "$JOB_NAME" \
             --image "$IMAGE" \
             --region "$REGION" \
             --service-account "scraper-runner@$PROJECT_ID.iam.gserviceaccount.com" \
             --cpu 2 --memory 2Gi \
             --task-timeout 45m \
-            --max-retries 0
+            --max-retries 0 \
+            --command python \
+            --args "$ARGS"
 
       - name: Execute job
         if: inputs.execute
