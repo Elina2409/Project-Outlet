@@ -6,6 +6,11 @@ name: Scrape SKU counts
 
 on:
   workflow_dispatch:
+    inputs:
+      product_cards:
+        description: "Site key (e.g. fjellsport): crawl every product page and commit data/product_cards_<site>.csv instead of the SKU-count scrape"
+        type: string
+        default: ""
   # schedule:
   #   - cron: "17 5 * * 1"   # Mondays 05:17 UTC - uncomment to schedule
 
@@ -17,7 +22,8 @@ concurrency: scrape-sku
 jobs:
   scrape:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # The product-card crawl visits ~22k pages and needs more headroom.
+    timeout-minutes: ${{ inputs.product_cards != '' && 240 || 45 }}
     steps:
       - uses: actions/checkout@v4
 
@@ -29,10 +35,17 @@ jobs:
       - name: Install dependencies
         run: |
           pip install -r requirements.txt
-          playwright install --with-deps chromium
+          if [ -z "${{ inputs.product_cards }}" ]; then
+            playwright install --with-deps chromium
+          fi
 
       - name: Scrape
-        run: python main.py
+        run: |
+          if [ -n "${{ inputs.product_cards }}" ]; then
+            python product_cards.py "${{ inputs.product_cards }}"
+          else
+            python main.py
+          fi
 
       - name: Commit data
         run: |
@@ -42,6 +55,10 @@ jobs:
           if git diff --cached --quiet; then
             echo "No data changes to commit"
           else
-            git commit -m "SKU counts $(date -u +%F)"
+            if [ -n "${{ inputs.product_cards }}" ]; then
+              git commit -m "Product cards ${{ inputs.product_cards }} $(date -u +%F)"
+            else
+              git commit -m "SKU counts $(date -u +%F)"
+            fi
             git push
           fi
