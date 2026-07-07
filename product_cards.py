@@ -75,6 +75,12 @@ _IMAGE_ARTICLE_RE = re.compile(r"/([^/]+?)(?:-hero)?-[0-9a-f]{8,}\.\w+(?:\?|$)")
 _GENDER_TOKEN_RE = re.compile(r"(?:^|-)(dame|herre|unisex)(?:-|$)")
 _PARENT_ID_RE = re.compile(r'\\?"parentId\\?":\\?"([^"\\]+)')
 _PARENT_CODE_RE = re.compile(r"^(?P<brand>.+?)-(?P<code>\d{2}-\d{6,}|\d{4,})$")
+# Style/article code = slug tail after the LAST gender token
+# (e.g. ...-dame-1204311b -> 1204311b, ...-unisex-08-0000064118 ->
+# 08-0000064118). Matches the code half of parentId where both exist,
+# and is present even on older products whose page omits parentId
+# (~54% of the catalogue, verified 2026-07-07).
+_SLUG_CODE_RE = re.compile(r"-(?:dame|herre|unisex)-([a-z0-9-]+)$")
 
 _progress_lock = threading.Lock()
 _done = 0
@@ -157,12 +163,24 @@ def fetch_card(session: requests.Session, site: str, url: str,
                         row["image_article"] = match.group(1)
             else:  # loplabbet
                 row["name"] = row["name"].removesuffix(" | Løplabbet.no").strip()
+                slug = url.rstrip("/").split("/")[-1]
                 parent = _PARENT_ID_RE.search(html)
                 if parent:
+                    # Cleanest id: brand-code straight from the page JSON.
                     parent_id = parent.group(1)
                     row["image_article"] = parent_id
                     split = _PARENT_CODE_RE.match(parent_id)
                     row["brand"] = split["brand"] if split else parent_id.split("-")[0]
+                else:
+                    # Older products omit parentId - rebuild the style id
+                    # from the URL: <brand>-<slug-tail code>. Brand is the
+                    # slug up to the first gender token.
+                    code = _SLUG_CODE_RE.search(slug)
+                    brand = slug.split("-dame-")[0].split("-herre-")[0] \
+                        .split("-unisex-")[0].split("-")[0]
+                    row["brand"] = brand
+                    if code:
+                        row["image_article"] = f"{brand}-{code.group(1)}"
     except Exception as exc:
         row["status"] = f"error: {exc}"[:150]
     with _progress_lock:

@@ -121,6 +121,18 @@ several categories).
   require image AND name to agree for high-confidence duplicates.
   Verified 2026-07-06: 21549 pages → ~40 duplicate groups (56 extra
   pages, mostly size variants with their own pages); ≈21493 unique.
+- **Loplabbet is crawl-friendly and mostly variant-per-page.** One flat
+  `sitemap.xml` (~4450 URLs); product pages are root-level slugs with a
+  `-dame-/-herre-/-unisex-` token (content prefixes and model landing
+  pages like `/adidas-boston-13` lack it). No 429s at 4 workers/0.2s.
+  Article/style code = slug tail after the last gender token
+  (`...-dame-1204311b` -> `1204311b`), equal to the code half of the
+  embedded RSC `parentId` (`brooks-sports-1204311b`) where that exists
+  — but ~54% of pages (older products) omit `parentId`, so derive the
+  code from the URL, not just the page JSON. Verified 2026-07-07: 3961
+  product pages, 0 failures; 3937 unique by brand+name (24 exact
+  duplicates); ~2771 unique style codes (592 models carry ≥2 colour
+  variants as their own pages — e.g. Nike Zoom Fly 6 in 14 colours).
 - **Playwright sync API is not thread-safe**: one Playwright instance +
   browser per worker thread, never shared.
 - **Scheduled workflows only fire from the repo's default branch**;
