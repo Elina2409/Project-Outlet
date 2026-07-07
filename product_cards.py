@@ -1,6 +1,6 @@
-"""Crawl every canonical fjellsport product page and extract its card.
+"""Crawl every canonical product page of a site and extract its card.
 
-Usage: python product_cards.py fjellsport [--workers N] [--limit N]
+Usage: python product_cards.py {fjellsport|loplabbet} [--workers N] [--limit N]
 
 Answers "are there duplicate products behind distinct URLs?" - the
 sitemap total (scrapers/fjellsport.py) is deduplicated by URL only, so
@@ -22,10 +22,20 @@ workers with no delay got HTTP 429 on 94% of requests. Defaults are now
 2 workers + 0.4s delay per request (~70-90 min for the full crawl), and
 429s are retried with backoff honoring Retry-After.
 
+loplabbet (verified via probe_source.py, 2026-07-07): one flat
+sitemap.xml; product pages are root-level slugs carrying a
+-dame-/-herre-/-unisex- token (content pages and model landing pages
+like /adidas-boston-13 lack it). Each product page embeds
+`"parentId":"<brand>-<articlecode>"` (e.g. dynafit-08-0000064118) in
+its RSC JSON - that is the stable article id and goes in the
+image_article column; brand is the parentId minus the trailing code;
+name is og:title minus the " | Løplabbet.no" suffix.
+
 Writes one row per product page to data/product_cards_<site>.csv
 (committed by the scrape workflow when dispatched with the
 product_cards input) and prints a dedupe summary: unique pages vs
-unique image ids vs unique brand+name, with example duplicate groups.
+unique article/image ids vs unique brand+name, with example duplicate
+groups.
 """
 from __future__ import annotations
 
@@ -46,6 +56,12 @@ from scrapers.fjellsport import SITEMAP_INDEX_URL, _SITEMAP_LOC_RE
 DATA_DIR = Path(__file__).resolve().parent / "data"
 FIELDS = ["url", "brand", "name", "sizes", "image_article", "status"]
 
+LOPLABBET_SITEMAP_URL = "https://loplabbet.no/sitemap.xml"
+# site -> (default workers, default per-request delay). fjellsport
+# throttles hard (see module docstring); loplabbet's robots.txt allows
+# fast crawling, so start quicker - the 429 backoff still protects it.
+SITE_TUNING = {"fjellsport": (2, 0.4), "loplabbet": (4, 0.2)}
+
 _OG_TITLE_RE = re.compile(r'property="og:title" content="([^"]*)"')
 _TITLE_RE = re.compile(r"<title>([^<]*)</title>")
 _OG_IMAGE_RE = re.compile(r'property="og:image" content="([^"]*)"')
@@ -54,11 +70,17 @@ _SELECTOR_LABEL_RE = re.compile(r'"selectorLabel":"([^"]*)"')
 # .../sw002479k18-hero-2e24cc4911.png -> sw002479k18
 _IMAGE_ARTICLE_RE = re.compile(r"/([^/]+?)(?:-hero)?-[0-9a-f]{8,}\.\w+(?:\?|$)")
 
+# loplabbet: gender token that marks a product slug, and the embedded
+# parent product id (appears backslash-escaped inside the RSC JSON).
+_GENDER_TOKEN_RE = re.compile(r"(?:^|-)(dame|herre|unisex)(?:-|$)")
+_PARENT_ID_RE = re.compile(r'\\?"parentId\\?":\\?"([^"\\]+)')
+_PARENT_CODE_RE = re.compile(r"^(?P<brand>.+?)-(?P<code>\d{2}-\d{6,}|\d{4,})$")
+
 _progress_lock = threading.Lock()
 _done = 0
 
 
-def product_urls(session: requests.Session) -> list[str]:
+def product_urls_fjellsport(session: requests.Session) -> list[str]:
     """All canonical product URLs (/merker/<brand>/<slug>) from the
     sitemap files - same selection as scrapers/fjellsport.py."""
     index = session.get(SITEMAP_INDEX_URL, timeout=30).text
@@ -75,12 +97,40 @@ def product_urls(session: requests.Session) -> list[str]:
     return urls
 
 
-def fetch_card(session: requests.Session, url: str, total: int, delay: float) -> dict:
+def product_urls_loplabbet(session: requests.Session) -> list[str]:
+    """Product URLs from the flat sitemap: root-level slugs carrying a
+    gender token. Content prefixes (/artikler, /kampanjer, /dame, ...)
+    and model landing pages (/adidas-boston-13) lack the token; the
+    bare /dame and /herre listing pages are excluded by the exact
+    match. The sitemap lists some products twice - the seen-set
+    dedupes."""
+    xml = session.get(LOPLABBET_SITEMAP_URL, timeout=60).text
+    urls: list[str] = []
+    seen: set[str] = set()
+    for loc in _SITEMAP_LOC_RE.findall(xml):
+        clean = loc.split("?")[0]
+        parts = [p for p in clean.split("://", 1)[-1].split("/") if p][1:]
+        if (len(parts) == 1 and parts[0] not in ("dame", "herre", "unisex")
+                and _GENDER_TOKEN_RE.search(parts[0]) and clean not in seen):
+            seen.add(clean)
+            urls.append(clean)
+    return urls
+
+
+PRODUCT_URLS = {
+    "fjellsport": product_urls_fjellsport,
+    "loplabbet": product_urls_loplabbet,
+}
+
+
+def fetch_card(session: requests.Session, site: str, url: str,
+               total: int, delay: float) -> dict:
     global _done
     row = {"url": url, "brand": "", "name": "", "sizes": "",
            "image_article": "", "status": "ok"}
     parts = [p for p in url.split("://", 1)[-1].split("/") if p][1:]
-    row["brand"] = parts[1] if len(parts) > 1 else ""
+    if site == "fjellsport":
+        row["brand"] = parts[1] if len(parts) > 1 else ""
     try:
         time.sleep(delay)
         for attempt in range(6):
@@ -96,14 +146,23 @@ def fetch_card(session: requests.Session, url: str, total: int, delay: float) ->
             html = resp.text
             title = _OG_TITLE_RE.search(html) or _TITLE_RE.search(html)
             row["name"] = title.group(1).strip() if title else ""
-            row["sizes"] = ";".join(
-                dict.fromkeys(_SELECTOR_LABEL_RE.findall(html))
-            )
-            image = _OG_IMAGE_RE.search(html)
-            if image:
-                match = _IMAGE_ARTICLE_RE.search(image.group(1))
-                if match:
-                    row["image_article"] = match.group(1)
+            if site == "fjellsport":
+                row["sizes"] = ";".join(
+                    dict.fromkeys(_SELECTOR_LABEL_RE.findall(html))
+                )
+                image = _OG_IMAGE_RE.search(html)
+                if image:
+                    match = _IMAGE_ARTICLE_RE.search(image.group(1))
+                    if match:
+                        row["image_article"] = match.group(1)
+            else:  # loplabbet
+                row["name"] = row["name"].removesuffix(" | Løplabbet.no").strip()
+                parent = _PARENT_ID_RE.search(html)
+                if parent:
+                    parent_id = parent.group(1)
+                    row["image_article"] = parent_id
+                    split = _PARENT_CODE_RE.match(parent_id)
+                    row["brand"] = split["brand"] if split else parent_id.split("-")[0]
     except Exception as exc:
         row["status"] = f"error: {exc}"[:150]
     with _progress_lock:
@@ -144,26 +203,29 @@ def summarize(rows: list[dict]) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("site", choices=["fjellsport"])
-    parser.add_argument("--workers", type=int, default=2)
-    parser.add_argument("--delay", type=float, default=0.4,
+    parser.add_argument("site", choices=sorted(PRODUCT_URLS))
+    parser.add_argument("--workers", type=int, default=0,
+                        help="parallel workers (default: per-site tuning)")
+    parser.add_argument("--delay", type=float, default=-1.0,
                         help="seconds to sleep before each request, per worker")
     parser.add_argument("--limit", type=int, default=0,
                         help="crawl only the first N product pages (smoke test)")
     args = parser.parse_args()
+    workers = args.workers or SITE_TUNING[args.site][0]
+    delay = args.delay if args.delay >= 0 else SITE_TUNING[args.site][1]
 
     session = requests.Session()
     session.headers["User-Agent"] = USER_AGENT
 
-    urls = product_urls(session)
+    urls = PRODUCT_URLS[args.site](session)
     print(f"product URLs from sitemap: {len(urls)}")
     if args.limit:
         urls = urls[: args.limit]
         print(f"limited to first {len(urls)}")
 
-    with ThreadPoolExecutor(max_workers=args.workers) as pool:
+    with ThreadPoolExecutor(max_workers=workers) as pool:
         rows = list(pool.map(
-            lambda u: fetch_card(session, u, len(urls), args.delay), urls
+            lambda u: fetch_card(session, args.site, u, len(urls), delay), urls
         ))
 
     DATA_DIR.mkdir(parents=True, exist_ok=True)
