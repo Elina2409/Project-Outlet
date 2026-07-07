@@ -57,19 +57,23 @@ def main() -> None:
             print("\n--- non-HTML document, first 3000 chars ---")
             print(raw[:3000])
 
-        if "<sitemapindex" in raw[:2000]:
-            # Fetch every child sitemap and break all URLs down by first
-            # path segment - shows at a glance where product pages live
-            # and what they look like.
-            print("\n--- sitemap index: URL breakdown across child sitemaps ---")
+        if "<sitemapindex" in raw[:2000] or "<urlset" in raw[:2000]:
+            # Break all sitemap URLs down by first path segment - shows
+            # at a glance where product pages live and what they look
+            # like. For an index, fetch every child sitemap first.
+            print("\n--- sitemap: URL breakdown by first path segment ---")
             from collections import Counter
 
+            if "<sitemapindex" in raw[:2000]:
+                sources = _LOC_RE.findall(raw)
+            else:
+                sources = [None]  # the fetched document is the sitemap
             seg_counts: Counter = Counter()
             samples: dict[str, list[str]] = {}
-            for child in _LOC_RE.findall(raw):
-                xml = page.request.get(child).text()
+            for child in sources:
+                xml = page.request.get(child).text() if child else raw
                 locs = _LOC_RE.findall(xml)
-                print(f"{child}: {len(locs)} URLs")
+                print(f"{child or url}: {len(locs)} URLs")
                 for loc in locs:
                     path = re.sub(r"https?://[^/]+", "", loc).split("?")[0]
                     parts = [p for p in path.split("/") if p]
