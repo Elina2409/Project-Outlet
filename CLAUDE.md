@@ -14,7 +14,8 @@ cron line in the scrape workflow can be uncommented for scheduled runs.
 | `scrapers/_common.py` | Shared helpers: headless browser launch, consent-banner dismissal, scroll/pagination tile counters, CSV writer (with in-place schema migration). |
 | `scrapers/<site>.py` | One module per site key. Exports `get_sku_count(page)`; optionally `get_category_counts(page)` (direct counts, e.g. API) or `get_categories(page)` + `get_sku_count(page, url)` (per-URL counting). |
 | `debug_page.py` | Diagnostics: loads a URL in the same headless browser and dumps title, buttons, imgs/links, category-name DOM shapes, intercepted apptus API label/count pairs, and the Sport Outlet categories API. Saves screenshot + HTML. |
-| `probe_source.py` | Diagnostics for unreachable sites: dumps where a page's category/count data lives (script JSON blobs, count-keyed fields, nav links, term contexts). Run it in Cloud Run via `deploy.yml`'s `probe_url` input and read the run log. |
+| `probe_source.py` | Diagnostics for unreachable sites: dumps where a page's category/count data lives (script JSON blobs, count-keyed fields, nav links, term contexts; sitemap indexes get a per-path-prefix URL census). Run it in Cloud Run via `deploy.yml`'s `probe_url` input and read the run log. |
+| `product_cards.py` | Product-card crawler: fetches every canonical product URL from a site's sitemap via plain HTTP, extracts the card (brand, name, sizes, og:image article id) and writes `data/product_cards_<site>.csv` plus a duplicate summary. Run via `scrape-sku.yml`'s `product_cards` input (site key) so the CSV is committed. |
 | `.github/workflows/scrape-sku.yml` | Manual-dispatch scrape on a GitHub runner; commits `data/`. Cron line included but commented out. |
 | `.github/workflows/deploy.yml` | Dispatch-only GCP fallback: build image → deploy Cloud Run Job → optionally execute and print logs. Placeholders until `setup-gcp-wif.sh` output is pasted in. |
 | `setup-gcp-wif.sh` | One-time, idempotent GCP setup (WIF keyless auth, service accounts, roles). |
@@ -107,6 +108,19 @@ several categories).
   Shell, the GitHub workflow, or user-pasted page details / DevTools
   captures — Network-tab screenshots from the user have been the
   highest-value input by far.
+- **Fjellsport rate-limits crawls.** 8 workers with no delay got HTTP
+  429 on 94% of 21550 product-page fetches; 2 workers + 0.4s delay with
+  Retry-After backoff completed with 1 failure (~100 min). Any
+  full-catalog crawl must throttle and must fail the run when >10% of
+  fetches fail — a partial crawl must never pass as the answer.
+- **Fjellsport's `selectorLabel` is a size label, not an article code**
+  ("S"/"M"/"XL" — thousands of unrelated products share "S;M;L;XL").
+  Product-card dedupe keys that work: og:image blob id (e.g.
+  `sw002479k18`) and brand+og:title. Beware generic blob names ("1",
+  "unnamed", "png-2000px-max-72dpi") grouping unrelated products —
+  require image AND name to agree for high-confidence duplicates.
+  Verified 2026-07-06: 21549 pages → ~40 duplicate groups (56 extra
+  pages, mostly size variants with their own pages); ≈21493 unique.
 - **Playwright sync API is not thread-safe**: one Playwright instance +
   browser per worker thread, never shared.
 - **Scheduled workflows only fire from the repo's default branch**;
