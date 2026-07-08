@@ -51,7 +51,8 @@ def main() -> None:
         raw = page.request.get(url).text()
         print(f"=== raw source: {url} ({len(raw)} chars) ===")
 
-        if "<html" not in raw[:2000].lower():
+        is_html = "<html" in raw[:2000].lower()
+        if not is_html:
             # Not an HTML page (sitemap XML, robots.txt, JSON, ...):
             # the document head is the useful part, dump it directly.
             print("\n--- non-HTML document, first 3000 chars ---")
@@ -70,7 +71,7 @@ def main() -> None:
                 sources = [None]  # the fetched document is the sitemap
             seg_counts: Counter = Counter()
             samples: dict[str, list[str]] = {}
-            for child in sources:
+            for child in sources[:20]:  # cap: a runaway index shouldn't hang the probe
                 xml = page.request.get(child).text() if child else raw
                 locs = _LOC_RE.findall(xml)
                 print(f"{child or url}: {len(locs)} URLs")
@@ -120,33 +121,40 @@ def main() -> None:
         if not shown:
             print("  (none)")
 
-        page.goto(url, wait_until="domcontentloaded")
-        dismiss_cookie_banner(page)
-        page.wait_for_timeout(3000)
-
-        print("\n--- rendered nav links (header/nav anchors, first 40) ---")
-        anchors = page.eval_on_selector_all(
-            "header a[href], nav a[href]",
-            "els => els.map(e => ({text: e.innerText.trim().split('\\n')[0], href: e.href}))",
-        )
         nav_texts: list[str] = []
-        for anchor in anchors[:40]:
-            if anchor["text"]:
-                nav_texts.append(anchor["text"])
-                print(f"  {anchor['text']!r} -> {anchor['href']}")
+        if is_html:
+            # Only render actual pages in the browser - rendering a
+            # multi-MB sitemap/XML/robots.txt document as if it were
+            # HTML wastes minutes and can OOM the container for
+            # nothing (a sitemap has no nav or body text to extract).
+            page.goto(url, wait_until="domcontentloaded")
+            dismiss_cookie_banner(page)
+            page.wait_for_timeout(3000)
 
-        print("\n--- 'produkter/varer/artikler' in rendered body text ---")
-        body_text = page.inner_text("body")
-        hits = 0
-        for match in re.finditer(
-            r"[\d   .]{1,9}\s*(?:produkter|varer|artikler)", body_text, re.IGNORECASE
-        ):
-            print(f"  {_context(body_text, match.start(), match.end(), 60)!r}")
-            hits += 1
-            if hits >= 15:
-                break
-        if not hits:
-            print("  (none)")
+            print("\n--- rendered nav links (header/nav anchors, first 40) ---")
+            anchors = page.eval_on_selector_all(
+                "header a[href], nav a[href]",
+                "els => els.map(e => ({text: e.innerText.trim().split('\\n')[0], href: e.href}))",
+            )
+            for anchor in anchors[:40]:
+                if anchor["text"]:
+                    nav_texts.append(anchor["text"])
+                    print(f"  {anchor['text']!r} -> {anchor['href']}")
+
+            print("\n--- 'produkter/varer/artikler' in rendered body text ---")
+            body_text = page.inner_text("body")
+            hits = 0
+            for match in re.finditer(
+                r"[\d\u00a0\u202f .]{1,9}\s*(?:produkter|varer|artikler)", body_text, re.IGNORECASE
+            ):
+                print(f"  {_context(body_text, match.start(), match.end(), 60)!r}")
+                hits += 1
+                if hits >= 15:
+                    break
+            if not hits:
+                print("  (none)")
+        else:
+            print("\n--- skipping browser render (non-HTML document) ---")
 
         print("\n--- raw-source context around search terms ---")
         for term in terms or nav_texts[:10]:
