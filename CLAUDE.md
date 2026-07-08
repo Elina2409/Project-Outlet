@@ -77,7 +77,17 @@ several categories).
   tracker. Product slugs can encode color variants, so it may exceed
   the category tree's counts; robots.txt's `Disallow: /produkter/` does
   NOT match the canonical product URLs.
-- `antonsport`, `intersport` — `NotImplementedError` stubs.
+- `intersport` — same platform as loplabbet (Excite-like, embeds
+  `"parentId":"<brand>-<code>"` per product). No embedded category-tree
+  count and no verified CSS selector for the count element, so counts
+  come from the rendered body text: `<N> PRODUKTER` next to the filter
+  bar, also appears as `VISER 15 AV <N> PRODUKTER` in pagination
+  (`probe_source.py`, 2026-07-08). Category URLs from the top nav:
+  Klær, Sko, Sykkel, Sport og ballspill, Friluft, Trening og helse,
+  Vintersport; Merker/Nyheter(kolleksjon)/Kampanjer/Outlet excluded as
+  cross-cutting. No known whole-catalog page → `all` is an error row by
+  design.
+- `antonsport` — `NotImplementedError` stub.
   Check for a catalog API in the browser Network tab first (filter
   "api"); only fall back to DOM counting via the helpers in
   `_common.py`.
@@ -170,6 +180,6 @@ For a different egress network or heavier iteration, dispatch
 - `sportoutlet` — sportoutlet.no (API-based, categories + all)
 - `xxl` — xxl.no (intercepted eSales API, categories + all)
 - `antonsport` — antonsport.no (stub)
-- `intersport` — intersport.no (stub)
+- `intersport` — intersport.no (rendered "N PRODUKTER" body text, per-category only; no site-wide total)
 - `sport1` — sport1.no (rendered "N produkter" label, per-category only; no site-wide total)
 - `fjellsport` — fjellsport.no (embedded productCount tree in homepage source; deduplicated site total from the product sitemap)
