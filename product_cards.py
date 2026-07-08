@@ -24,9 +24,14 @@ workers with no delay got HTTP 429 on 94% of requests. Defaults are now
 
 loplabbet and intersport (verified via probe_source.py, 2026-07-07 and
 2026-07-08): same commerce platform. One flat sitemap.xml; product
-pages are root-level slugs carrying a -dame-/-herre-/-unisex- token
-(content/category pages like /klaer, /kampanjer and model landing
-pages like /adidas-boston-13 lack it). Each product page embeds
+pages are root-level slugs carrying an audience token (see
+GENDER_TOKENS - loplabbet: dame/herre/unisex; intersport additionally
+carries barn/alle for kids' and universal-audience products, e.g. pet
+gear - the first intersport crawl used only dame/herre/unisex and
+silently missed ~40% of the catalog, caught 2026-07-08 by cross-checking
+the crawled count against the category-page totals). Content/category
+pages like /klaer, /kampanjer and model landing pages like
+/adidas-boston-13 lack any audience token. Each product page embeds
 `"parentId":"<brand>-<articlecode>"` (e.g. dynafit-08-0000064118,
 atomic-ae5027400) in its RSC JSON - the stable article id, goes in the
 image_article column; brand is the parentId minus the trailing code;
@@ -77,17 +82,32 @@ _SELECTOR_LABEL_RE = re.compile(r'"selectorLabel":"([^"]*)"')
 # .../sw002479k18-hero-2e24cc4911.png -> sw002479k18
 _IMAGE_ARTICLE_RE = re.compile(r"/([^/]+?)(?:-hero)?-[0-9a-f]{8,}\.\w+(?:\?|$)")
 
-# loplabbet: gender token that marks a product slug, and the embedded
-# parent product id (appears backslash-escaped inside the RSC JSON).
-_GENDER_TOKEN_RE = re.compile(r"(?:^|-)(dame|herre|unisex)(?:-|$)")
+# Audience token that marks a product slug on the parentId-based
+# platform. loplabbet only ever showed dame/herre/unisex; intersport's
+# sitemap also carries -barn- (kids) and -alle- (all-audience: pet
+# gear, universal accessories) - missing these on the first intersport
+# crawl silently dropped ~40% of its catalog (verified 2026-07-08).
+GENDER_TOKENS = {
+    "loplabbet": ("dame", "herre", "unisex"),
+    "intersport": ("dame", "herre", "unisex", "barn", "alle"),
+}
 _PARENT_ID_RE = re.compile(r'\\?"parentId\\?":\\?"([^"\\]+)')
 _PARENT_CODE_RE = re.compile(r"^(?P<brand>.+?)-(?P<code>\d{2}-\d{6,}|\d{4,})$")
-# Style/article code = slug tail after the LAST gender token
-# (e.g. ...-dame-1204311b -> 1204311b, ...-unisex-08-0000064118 ->
-# 08-0000064118). Matches the code half of parentId where both exist,
-# and is present even on older products whose page omits parentId
-# (~54% of the catalogue, verified 2026-07-07).
-_SLUG_CODE_RE = re.compile(r"-(?:dame|herre|unisex)-([a-z0-9-]+)$")
+
+
+def _gender_token_re(site: str) -> re.Pattern:
+    tokens = "|".join(GENDER_TOKENS[site])
+    return re.compile(rf"(?:^|-)({tokens})(?:-|$)")
+
+
+def _slug_code_re(site: str) -> re.Pattern:
+    """Style/article code = slug tail after the LAST audience token
+    (e.g. ...-dame-1204311b -> 1204311b, ...-unisex-08-0000064118 ->
+    08-0000064118). Matches the code half of parentId where both
+    exist, and is present even on older products whose page omits
+    parentId (~54% of loplabbet's catalogue, verified 2026-07-07)."""
+    tokens = "|".join(GENDER_TOKENS[site])
+    return re.compile(rf"-(?:{tokens})-([a-z0-9-]+)$")
 
 _progress_lock = threading.Lock()
 _done = 0
@@ -110,21 +130,23 @@ def product_urls_fjellsport(session: requests.Session) -> list[str]:
     return urls
 
 
-def product_urls_flat_sitemap(session: requests.Session, sitemap_url: str) -> list[str]:
-    """Product URLs from a flat sitemap: root-level slugs carrying a
-    gender token. Content/category prefixes (/artikler, /kampanjer,
-    /klaer, /dame, ...) and model landing pages (/adidas-boston-13)
-    lack the token; the bare /dame, /herre, /unisex listing pages are
-    excluded by the exact match. The sitemap lists some products twice
-    - the seen-set dedupes."""
+def product_urls_flat_sitemap(session: requests.Session, sitemap_url: str, site: str) -> list[str]:
+    """Product URLs from a flat sitemap: root-level slugs carrying an
+    audience token (see GENDER_TOKENS). Content/category prefixes
+    (/artikler, /kampanjer, /klaer, /dame, ...) and model landing pages
+    (/adidas-boston-13) lack the token; the bare listing pages (/dame,
+    /barn, ...) are excluded by the exact match. The sitemap lists some
+    products twice - the seen-set dedupes."""
+    tokens = GENDER_TOKENS[site]
+    gender_re = _gender_token_re(site)
     xml = session.get(sitemap_url, timeout=60).text
     urls: list[str] = []
     seen: set[str] = set()
     for loc in _SITEMAP_LOC_RE.findall(xml):
         clean = loc.split("?")[0]
         parts = [p for p in clean.split("://", 1)[-1].split("/") if p][1:]
-        if (len(parts) == 1 and parts[0] not in ("dame", "herre", "unisex")
-                and _GENDER_TOKEN_RE.search(parts[0]) and clean not in seen):
+        if (len(parts) == 1 and parts[0] not in tokens
+                and gender_re.search(parts[0]) and clean not in seen):
             seen.add(clean)
             urls.append(clean)
     return urls
@@ -133,7 +155,7 @@ def product_urls_flat_sitemap(session: requests.Session, sitemap_url: str) -> li
 PRODUCT_URLS = {
     "fjellsport": product_urls_fjellsport,
     **{
-        site: (lambda session, url=url: product_urls_flat_sitemap(session, url))
+        site: (lambda session, url=url, site=site: product_urls_flat_sitemap(session, url, site))
         for site, url in FLAT_SITEMAP_URLS.items()
     },
 }
@@ -186,10 +208,12 @@ def fetch_card(session: requests.Session, site: str, url: str,
                 else:
                     # Older products omit parentId - rebuild the style id
                     # from the URL: <brand>-<slug-tail code>. Brand is the
-                    # slug up to the first gender token.
-                    code = _SLUG_CODE_RE.search(slug)
-                    brand = slug.split("-dame-")[0].split("-herre-")[0] \
-                        .split("-unisex-")[0].split("-")[0]
+                    # slug up to the first audience token.
+                    code = _slug_code_re(site).search(slug)
+                    brand = slug
+                    for token in GENDER_TOKENS[site]:
+                        brand = brand.split(f"-{token}-")[0]
+                    brand = brand.split("-")[0]
                     row["brand"] = brand
                     if code:
                         row["image_article"] = f"{brand}-{code.group(1)}"

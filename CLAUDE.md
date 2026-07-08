@@ -143,6 +143,16 @@ several categories).
   product pages, 0 failures; 3937 unique by brand+name (24 exact
   duplicates); ~2771 unique style codes (592 models carry ≥2 colour
   variants as their own pages — e.g. Nike Zoom Fly 6 in 14 colours).
+- **Intersport's product slugs use more audience tokens than loplabbet's.**
+  Same platform and sitemap shape, but besides `-dame-/-herre-/-unisex-`
+  it also uses `-barn-` (kids) and `-alle-` (universal audience — pet
+  gear, accessories). The first crawl matched only the loplabbet token
+  set and silently dropped ~40% of the catalog (20507 of an expected
+  ~35k pages) — caught by the gap between the crawl total and the
+  category-page totals (Klær alone shows 8707). `product_cards.py`
+  keeps a per-site `GENDER_TOKENS` set for exactly this reason; when
+  adding a new site on this platform, verify its full token set against
+  the sitemap census before trusting a crawl total.
 - **Playwright sync API is not thread-safe**: one Playwright instance +
   browser per worker thread, never shared.
 - **Scheduled workflows only fire from the repo's default branch**;
