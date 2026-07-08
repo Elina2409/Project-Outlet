@@ -1,6 +1,6 @@
 """Crawl every canonical product page of a site and extract its card.
 
-Usage: python product_cards.py {fjellsport|loplabbet} [--workers N] [--limit N]
+Usage: python product_cards.py {fjellsport|loplabbet|intersport} [--workers N] [--limit N]
 
 Answers "are there duplicate products behind distinct URLs?" - the
 sitemap total (scrapers/fjellsport.py) is deduplicated by URL only, so
@@ -22,14 +22,15 @@ workers with no delay got HTTP 429 on 94% of requests. Defaults are now
 2 workers + 0.4s delay per request (~70-90 min for the full crawl), and
 429s are retried with backoff honoring Retry-After.
 
-loplabbet (verified via probe_source.py, 2026-07-07): one flat
-sitemap.xml; product pages are root-level slugs carrying a
--dame-/-herre-/-unisex- token (content pages and model landing pages
-like /adidas-boston-13 lack it). Each product page embeds
-`"parentId":"<brand>-<articlecode>"` (e.g. dynafit-08-0000064118) in
-its RSC JSON - that is the stable article id and goes in the
+loplabbet and intersport (verified via probe_source.py, 2026-07-07 and
+2026-07-08): same commerce platform. One flat sitemap.xml; product
+pages are root-level slugs carrying a -dame-/-herre-/-unisex- token
+(content/category pages like /klaer, /kampanjer and model landing
+pages like /adidas-boston-13 lack it). Each product page embeds
+`"parentId":"<brand>-<articlecode>"` (e.g. dynafit-08-0000064118,
+atomic-ae5027400) in its RSC JSON - the stable article id, goes in the
 image_article column; brand is the parentId minus the trailing code;
-name is og:title minus the " | Løplabbet.no" suffix.
+name is og:title with the trailing " | <Site name>" stripped.
 
 Writes one row per product page to data/product_cards_<site>.csv
 (committed by the scrape workflow when dispatched with the
@@ -56,11 +57,17 @@ from scrapers.fjellsport import SITEMAP_INDEX_URL, _SITEMAP_LOC_RE
 DATA_DIR = Path(__file__).resolve().parent / "data"
 FIELDS = ["url", "brand", "name", "sizes", "image_article", "status"]
 
-LOPLABBET_SITEMAP_URL = "https://loplabbet.no/sitemap.xml"
+# Flat-sitemap sites sharing one commerce platform (parentId-based).
+FLAT_SITEMAP_URLS = {
+    "loplabbet": "https://loplabbet.no/sitemap.xml",
+    "intersport": "https://www.intersport.no/sitemap.xml",
+}
 # site -> (default workers, default per-request delay). fjellsport
-# throttles hard (see module docstring); loplabbet's robots.txt allows
-# fast crawling, so start quicker - the 429 backoff still protects it.
-SITE_TUNING = {"fjellsport": (2, 0.4), "loplabbet": (4, 0.2)}
+# throttles hard (see module docstring); loplabbet/intersport's
+# robots.txt allows fast crawling, so start quicker - the 429 backoff
+# still protects both. Intersport's sitemap is ~9x loplabbet's size
+# (~35k vs ~4k pages), so budget roughly 1.5-2h even at 4 workers.
+SITE_TUNING = {"fjellsport": (2, 0.4), "loplabbet": (4, 0.2), "intersport": (4, 0.2)}
 
 _OG_TITLE_RE = re.compile(r'property="og:title" content="([^"]*)"')
 _TITLE_RE = re.compile(r"<title>([^<]*)</title>")
@@ -103,14 +110,14 @@ def product_urls_fjellsport(session: requests.Session) -> list[str]:
     return urls
 
 
-def product_urls_loplabbet(session: requests.Session) -> list[str]:
-    """Product URLs from the flat sitemap: root-level slugs carrying a
-    gender token. Content prefixes (/artikler, /kampanjer, /dame, ...)
-    and model landing pages (/adidas-boston-13) lack the token; the
-    bare /dame and /herre listing pages are excluded by the exact
-    match. The sitemap lists some products twice - the seen-set
-    dedupes."""
-    xml = session.get(LOPLABBET_SITEMAP_URL, timeout=60).text
+def product_urls_flat_sitemap(session: requests.Session, sitemap_url: str) -> list[str]:
+    """Product URLs from a flat sitemap: root-level slugs carrying a
+    gender token. Content/category prefixes (/artikler, /kampanjer,
+    /klaer, /dame, ...) and model landing pages (/adidas-boston-13)
+    lack the token; the bare /dame, /herre, /unisex listing pages are
+    excluded by the exact match. The sitemap lists some products twice
+    - the seen-set dedupes."""
+    xml = session.get(sitemap_url, timeout=60).text
     urls: list[str] = []
     seen: set[str] = set()
     for loc in _SITEMAP_LOC_RE.findall(xml):
@@ -125,7 +132,10 @@ def product_urls_loplabbet(session: requests.Session) -> list[str]:
 
 PRODUCT_URLS = {
     "fjellsport": product_urls_fjellsport,
-    "loplabbet": product_urls_loplabbet,
+    **{
+        site: (lambda session, url=url: product_urls_flat_sitemap(session, url))
+        for site, url in FLAT_SITEMAP_URLS.items()
+    },
 }
 
 
@@ -151,7 +161,10 @@ def fetch_card(session: requests.Session, site: str, url: str,
         else:
             html = resp.text
             title = _OG_TITLE_RE.search(html) or _TITLE_RE.search(html)
-            row["name"] = title.group(1).strip() if title else ""
+            name = title.group(1).strip() if title else ""
+            # Every site's <title>/og:title ends " | <Site Name>" - the
+            # dedupe keys only care about the product name itself.
+            row["name"] = name.split(" | ")[0].strip()
             if site == "fjellsport":
                 row["sizes"] = ";".join(
                     dict.fromkeys(_SELECTOR_LABEL_RE.findall(html))
@@ -161,8 +174,7 @@ def fetch_card(session: requests.Session, site: str, url: str,
                     match = _IMAGE_ARTICLE_RE.search(image.group(1))
                     if match:
                         row["image_article"] = match.group(1)
-            else:  # loplabbet
-                row["name"] = row["name"].removesuffix(" | Løplabbet.no").strip()
+            else:  # loplabbet, intersport: same parentId-based platform
                 slug = url.rstrip("/").split("/")[-1]
                 parent = _PARENT_ID_RE.search(html)
                 if parent:
