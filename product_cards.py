@@ -1,6 +1,6 @@
 """Crawl every canonical product page of a site and extract its card.
 
-Usage: python product_cards.py {fjellsport|loplabbet|intersport} [--workers N] [--limit N]
+Usage: python product_cards.py {fjellsport|loplabbet|intersport|sport1} [--workers N] [--limit N]
 
 Answers "are there duplicate products behind distinct URLs?" - the
 sitemap total (scrapers/fjellsport.py) is deduplicated by URL only, so
@@ -22,14 +22,19 @@ workers with no delay got HTTP 429 on 94% of requests. Defaults are now
 2 workers + 0.4s delay per request (~70-90 min for the full crawl), and
 429s are retried with backoff honoring Retry-After.
 
-loplabbet and intersport (verified via probe_source.py, 2026-07-07 and
-2026-07-08): same commerce platform. One flat sitemap.xml; product
-pages are root-level slugs carrying an audience token (see
-GENDER_TOKENS - loplabbet: dame/herre/unisex; intersport additionally
-carries barn/alle for kids' and universal-audience products, e.g. pet
-gear - the first intersport crawl used only dame/herre/unisex and
-silently missed ~40% of the catalog, caught 2026-07-08 by cross-checking
-the crawled count against the category-page totals). Content/category
+loplabbet, intersport and sport1 (verified via probe_source.py,
+2026-07-07 and 2026-07-08, and a product-page probe on
+atomic-backland-expert-blackdark-blue-herre-ae5027400 on 2026-07-09):
+same commerce platform - sport1 and intersport's sitemap censuses even
+share byte-identical product slugs, so they evidently sell out of the
+same underlying catalog. One flat sitemap.xml per site; product pages
+are root-level slugs carrying an audience token (see GENDER_TOKENS -
+loplabbet: dame/herre/unisex; intersport and sport1 additionally carry
+barn/alle for kids' and universal-audience products, e.g. pet gear -
+the first intersport crawl used only dame/herre/unisex and silently
+missed ~40% of the catalog, caught 2026-07-08 by cross-checking the
+crawled count against the category-page totals - sport1's census was
+checked against the full 5-token set from the start). Content/category
 pages like /klaer, /kampanjer and model landing pages like
 /adidas-boston-13 lack any audience token. Each product page embeds
 `"parentId":"<brand>-<articlecode>"` (e.g. dynafit-08-0000064118,
@@ -66,13 +71,16 @@ FIELDS = ["url", "brand", "name", "sizes", "image_article", "status"]
 FLAT_SITEMAP_URLS = {
     "loplabbet": "https://loplabbet.no/sitemap.xml",
     "intersport": "https://www.intersport.no/sitemap.xml",
+    "sport1": "https://www.sport1.no/sitemap.xml",
 }
 # site -> (default workers, default per-request delay). fjellsport
-# throttles hard (see module docstring); loplabbet/intersport's
+# throttles hard (see module docstring); loplabbet/intersport/sport1's
 # robots.txt allows fast crawling, so start quicker - the 429 backoff
-# still protects both. Intersport's sitemap is ~9x loplabbet's size
-# (~35k vs ~4k pages), so budget roughly 1.5-2h even at 4 workers.
-SITE_TUNING = {"fjellsport": (2, 0.4), "loplabbet": (4, 0.2), "intersport": (4, 0.2)}
+# still protects all three. Intersport's and sport1's sitemaps are
+# ~9-11x loplabbet's size (~35-45k vs ~4k pages), so budget roughly
+# 1.5-2.5h even at 4 workers.
+SITE_TUNING = {"fjellsport": (2, 0.4), "loplabbet": (4, 0.2),
+               "intersport": (4, 0.2), "sport1": (4, 0.2)}
 
 _OG_TITLE_RE = re.compile(r'property="og:title" content="([^"]*)"')
 _TITLE_RE = re.compile(r"<title>([^<]*)</title>")
@@ -84,12 +92,15 @@ _IMAGE_ARTICLE_RE = re.compile(r"/([^/]+?)(?:-hero)?-[0-9a-f]{8,}\.\w+(?:\?|$)")
 
 # Audience token that marks a product slug on the parentId-based
 # platform. loplabbet only ever showed dame/herre/unisex; intersport's
-# sitemap also carries -barn- (kids) and -alle- (all-audience: pet
-# gear, universal accessories) - missing these on the first intersport
-# crawl silently dropped ~40% of its catalog (verified 2026-07-08).
+# and sport1's sitemaps also carry -barn- (kids) and -alle- (all-audience:
+# pet gear, universal accessories) - missing these on the first
+# intersport crawl silently dropped ~40% of its catalog (verified
+# 2026-07-08). sport1's census (44,942 URLs) was checked for the full
+# 5-token set up front to avoid repeating that mistake.
 GENDER_TOKENS = {
     "loplabbet": ("dame", "herre", "unisex"),
     "intersport": ("dame", "herre", "unisex", "barn", "alle"),
+    "sport1": ("dame", "herre", "unisex", "barn", "alle"),
 }
 _PARENT_ID_RE = re.compile(r'\\?"parentId\\?":\\?"([^"\\]+)')
 _PARENT_CODE_RE = re.compile(r"^(?P<brand>.+?)-(?P<code>\d{2}-\d{6,}|\d{4,})$")
@@ -196,7 +207,7 @@ def fetch_card(session: requests.Session, site: str, url: str,
                     match = _IMAGE_ARTICLE_RE.search(image.group(1))
                     if match:
                         row["image_article"] = match.group(1)
-            else:  # loplabbet, intersport: same parentId-based platform
+            else:  # loplabbet, intersport, sport1: same parentId-based platform
                 slug = url.rstrip("/").split("/")[-1]
                 parent = _PARENT_ID_RE.search(html)
                 if parent:
