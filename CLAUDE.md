@@ -62,7 +62,9 @@ several categories).
   top nav by visible link text; Nyheter/Merker/Kampanjer/Outlet are
   deliberately excluded. No known whole-catalog page → the `all` row is
   an error row by design (summing overlapping categories would
-  overcount).
+  overcount). Same parentId-based commerce platform as loplabbet/
+  intersport (`product_cards.py sport1`) — see gotchas below; sport1 and
+  intersport evidently share the same underlying product catalog.
 - `fjellsport` — the homepage source embeds the full category tree with
   `"url":"/X","name":"N","productCount":C` per node (subcategories
   included). One plain HTTP fetch, no rendering. Five assortment
@@ -152,6 +154,24 @@ several categories).
   category-page totals (Klær alone shows 8707). `product_cards.py`
   keeps a per-site `GENDER_TOKENS` set for exactly this reason; when
   adding a new site on this platform, verify its full token set against
+  the sitemap census before trusting a crawl total.
+- **Sport1 and Intersport appear to be the same underlying catalog.**
+  A product-page probe on sport1.no (2026-07-09) confirmed the identical
+  `"parentId":"<brand>-<code>"` JSON shape used by loplabbet/intersport,
+  so `product_cards.py` reused that platform's extraction logic wholesale
+  (same flat-sitemap crawl, same 5-token `GENDER_TOKENS`, applied from
+  the start this time — no repeat of the intersport undercount). Full
+  crawl (2026-07-09): 39957 product pages, 0 failures; 25869 unique
+  article/parentId codes (5228 duplicate groups, mostly colour variants
+  sharing one code — e.g. `2xu-wr7369a` in black/white); 37485 unique by
+  brand+name (2041 near-duplicate groups, e.g. the same lock listed under
+  two different article codes). 591 distinct brands; top by SKU count:
+  Bergans (3462), Jotunheim (2144), Adidas (2084), Rapala (1461),
+  Sølvkroken (1189). Cross-checked against intersport's crawl: 15825 of
+  sport1's 25869 article codes (61%) are byte-identical to codes on
+  intersport.no — strong evidence the two sites resell the same
+  wholesaler catalog under separate storefronts, not just the same
+  platform vendor.
   the sitemap census before trusting a crawl total.
 - **Playwright sync API is not thread-safe**: one Playwright instance +
   browser per worker thread, never shared.
