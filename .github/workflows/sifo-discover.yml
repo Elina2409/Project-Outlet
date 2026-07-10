@@ -1,0 +1,25 @@
+# One-off discovery run: prints the SIFO referansebudsjett archive's link
+# structure to the job log. This sandbox can't reach oslomet.no directly,
+# so this runs on a GitHub runner instead. Commits nothing.
+name: SIFO discover
+
+on:
+  workflow_dispatch:
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements-sifo.txt
+
+      - name: Discover archive links
+        run: python sifo_discover.py
