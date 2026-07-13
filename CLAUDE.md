@@ -55,6 +55,9 @@ several categories).
   (`selected: true` nodes win; count-less breadcrumb entries are
   ignored). Category URLs come from the homepage top nav by visible link
   text. Kampanjer/Varemerker/Outlet are deliberately excluded.
+  Product-card duplicate detection uses a separate, unrelated platform —
+  a dedicated product-only sitemap plus schema.org JSON-LD
+  (`product_cards.py xxl`) — see gotchas below.
 - `sport1` — each category page (e.g. /klaer) renders the site's own
   total above the grid: `<span class="text-secondary">N</span>
   produkter`. That label is read directly (poll up to 30s; body-text
@@ -172,7 +175,47 @@ several categories).
   intersport.no — strong evidence the two sites resell the same
   wholesaler catalog under separate storefronts, not just the same
   platform vendor.
-  the sitemap census before trusting a crawl total.
+- **xxl uses a completely different product-card platform** (schema.org
+  `ProductGroup`/`hasVariant` JSON-LD, not the parentId RSC pattern) and
+  is the only site of the five where `product_cards.py`'s own crawl
+  needs to walk a dedicated *product-only* sitemap index
+  (`sitemaps/auto/live-product/sitemapindex.xml`, from robots.txt) with
+  no audience-token filtering — every child sitemap is product pages
+  already. Verified via probe_source.py against a live product page
+  (2026-07-13): `productGroupId` matches the URL's numeric id and is the
+  dedupe key; `variesBy: ["schema.org/size"]` confirms size stays on one
+  page here too. Full crawl: 23870 pages, 4 failures; 22898 unique
+  productGroupIds (509 duplicate groups — occasionally two colours share
+  one id, e.g. `1163833` in yellow/black); 16285 unique by brand+name —
+  much lower than the other four sites' brand+name counts relative to
+  page count, because xxl's JSON `name` field never includes colour
+  (e.g. "Court Vision Low Next Nature, sneaker, dame" has no colour
+  word) — so brand+name collapses every colour of a model into one
+  group here, the opposite of what article-code dedupe does on the
+  parentId platform. 580 distinct brands; top by SKU count: Nike (2981),
+  Adidas (1281), Puma (1103), Timberland (993), Stormberg (878).
+- **Page count is the only truly apples-to-apples "SKU" number across
+  all five sites** — every one of them keeps size as an in-page
+  attribute (never its own URL), and every one gives each colour its own
+  URL, so page count = colour-variant count everywhere. The "unique
+  article/style code" column is NOT comparable across sites: it's
+  near-colour-level for fjellsport and xxl (few duplicate groups), but
+  frequently colour-blind (one code covers several colours) for the
+  parentId platform (loplabbet/intersport/sport1), so its number sits
+  much closer to "unique models" there. "Unique brand+name" also isn't
+  comparable as-is: it's colour-blind by construction on xxl (colour
+  isn't in the name field at all) but roughly colour-level on the other
+  four (colour is usually part of the title/og:title text). Verified
+  2026-07-13 by loading all five `product_cards_<site>.csv` files
+  side by side:
+
+  | site | pages (=colours) | unique brand+name | unique article/style code |
+  |---|---|---|---|
+  | fjellsport | 21549 | 21205 | 20397 |
+  | loplabbet | 3961 | 3916 | 2784 |
+  | intersport | 32865 | 31084 | 22613 |
+  | sport1 | 39957 | 37485 | 25869 |
+  | xxl | 23866 | 16285 | 22898 |
 - **Playwright sync API is not thread-safe**: one Playwright instance +
   browser per worker thread, never shared.
 - **Scheduled workflows only fire from the repo's default branch**;
