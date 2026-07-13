@@ -1,6 +1,6 @@
 """Crawl every canonical product page of a site and extract its card.
 
-Usage: python product_cards.py {fjellsport|loplabbet|intersport|sport1} [--workers N] [--limit N]
+Usage: python product_cards.py {fjellsport|loplabbet|intersport|sport1|xxl} [--workers N] [--limit N]
 
 Answers "are there duplicate products behind distinct URLs?" - the
 sitemap total (scrapers/fjellsport.py) is deduplicated by URL only, so
@@ -42,6 +42,21 @@ atomic-ae5027400) in its RSC JSON - the stable article id, goes in the
 image_article column; brand is the parentId minus the trailing code;
 name is og:title with the trailing " | <Site name>" stripped.
 
+xxl (verified via probe_source.py, 2026-07-13): a different commerce
+platform entirely (Apptus eSales storefront, same one scrapers/xxl.py
+intercepts for category counts - unrelated to this file's crawl, which
+is a separate plain-HTTP sitemap walk). Its sitemap index
+(sitemaps/auto/live-product/sitemapindex.xml, from robots.txt) points
+at dozens of child sitemaps that are product pages ONLY - no audience-
+token filtering needed, unlike the parentId platform. Each product page
+embeds a proper schema.org `<script type="application/ld+json">` block
+(a JSON array containing a ProductGroup object, not escaped RSC JSON):
+`productGroupId` (matches the URL's numeric id, e.g. .../p/1250508_1_Style)
+is the dedupe key; `brand.name` and `name` are read straight from the
+JSON; sizes come from `hasVariant[].size` - confirmed size stays on one
+page (`variesBy: ["https://schema.org/size"]`), same as every other site
+here, so page count is directly SKU-comparable across all five sites.
+
 Writes one row per product page to data/product_cards_<site>.csv
 (committed by the scrape workflow when dispatched with the
 product_cards input) and prints a dedupe summary: unique pages vs
@@ -52,6 +67,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import json
 import re
 import sys
 import threading
@@ -80,7 +96,13 @@ FLAT_SITEMAP_URLS = {
 # ~9-11x loplabbet's size (~35-45k vs ~4k pages), so budget roughly
 # 1.5-2.5h even at 4 workers.
 SITE_TUNING = {"fjellsport": (2, 0.4), "loplabbet": (4, 0.2),
-               "intersport": (4, 0.2), "sport1": (4, 0.2)}
+               "intersport": (4, 0.2), "sport1": (4, 0.2), "xxl": (4, 0.2)}
+
+# xxl's dedicated product-only sitemap index (from robots.txt, 2026-07-13).
+XXL_SITEMAP_INDEX_URL = "https://www.xxl.no/sitemaps/auto/live-product/sitemapindex.xml"
+_XXL_LDJSON_RE = re.compile(
+    r'<script[^>]*type="application/ld\+json"[^>]*>(.*?)</script>', re.DOTALL
+)
 
 _OG_TITLE_RE = re.compile(r'property="og:title" content="([^"]*)"')
 _TITLE_RE = re.compile(r"<title>([^<]*)</title>")
@@ -163,8 +185,41 @@ def product_urls_flat_sitemap(session: requests.Session, sitemap_url: str, site:
     return urls
 
 
+def product_urls_xxl(session: requests.Session) -> list[str]:
+    """All product URLs from xxl's live-product sitemap index. Unlike the
+    other sites' general sitemaps this one is product pages only (verified
+    2026-07-13), so no audience-token filtering is needed - every child
+    sitemap is fetched in full (the 20-file cap in probe_source.py is a
+    diagnostic-only safeguard, not appropriate for an actual crawl)."""
+    index = session.get(XXL_SITEMAP_INDEX_URL, timeout=30).text
+    urls: list[str] = []
+    seen: set[str] = set()
+    for child_url in _SITEMAP_LOC_RE.findall(index):
+        xml = session.get(child_url, timeout=60).text
+        for loc in _SITEMAP_LOC_RE.findall(xml):
+            clean = loc.split("?")[0]
+            if "/p/" in clean and clean not in seen:
+                seen.add(clean)
+                urls.append(clean)
+    return urls
+
+
+def _xxl_product_group(html: str) -> dict | None:
+    """The schema.org ProductGroup object from the page's ld+json block."""
+    for match in _XXL_LDJSON_RE.finditer(html):
+        try:
+            data = json.loads(match.group(1))
+        except ValueError:
+            continue
+        for item in data if isinstance(data, list) else [data]:
+            if isinstance(item, dict) and item.get("@type") == "ProductGroup":
+                return item
+    return None
+
+
 PRODUCT_URLS = {
     "fjellsport": product_urls_fjellsport,
+    "xxl": product_urls_xxl,
     **{
         site: (lambda session, url=url, site=site: product_urls_flat_sitemap(session, url, site))
         for site, url in FLAT_SITEMAP_URLS.items()
@@ -207,6 +262,19 @@ def fetch_card(session: requests.Session, site: str, url: str,
                     match = _IMAGE_ARTICLE_RE.search(image.group(1))
                     if match:
                         row["image_article"] = match.group(1)
+            elif site == "xxl":
+                group = _xxl_product_group(html)
+                if group:
+                    row["name"] = group.get("name") or row["name"]
+                    row["brand"] = (group.get("brand") or {}).get("name", "")
+                    row["image_article"] = str(
+                        group.get("productGroupId") or group.get("sku") or ""
+                    )
+                    sizes = {
+                        v.get("size") for v in group.get("hasVariant", [])
+                        if isinstance(v, dict) and v.get("size")
+                    }
+                    row["sizes"] = ";".join(sorted(sizes))
             else:  # loplabbet, intersport, sport1: same parentId-based platform
                 slug = url.rstrip("/").split("/")[-1]
                 parent = _PARENT_ID_RE.search(html)
