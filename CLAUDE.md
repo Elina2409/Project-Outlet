@@ -237,6 +237,14 @@ several categories).
   | intersport | 32865 | 31084 | 22613 |
   | sport1 | 39957 | 37485 | 25869 |
   | xxl | 23866 | 16285 | 22898 |
+
+  sportoutlet joined this comparison later (2026-07-30, see the gotcha
+  below on why its crawl unrolls colours) - unlike the other five it has
+  no "article/style code" concept, just brand+name+colour:
+
+  | site | pages (=colours) | unique brand+name+colour |
+  |---|---|---|
+  | sportoutlet | 12652 | 12593 |
 - **Playwright sync API is not thread-safe**: one Playwright instance +
   browser per worker thread, never shared.
 - **Scheduled workflows only fire from the repo's default branch**;
@@ -298,8 +306,16 @@ several categories).
   `[Green, Fuchsia]` on one record and `[Grønn, Rosa]` (the same two
   colours in Norwegian) on the other. So 5830 is a genuine dedup of
   *search-index documents*, but not a count of anything comparable to
-  the other sites' colour-variant page counts - don't add it to the
-  apples-to-apples table above.
+  the other sites' colour-variant page counts.
+  `product_cards.py sportoutlet` therefore unrolls each article's
+  `colors` array into one row per colour (`image_article` =
+  `ArticleUUID:ColorID`, colour name folded into `name`) - full crawl
+  (2026-07-30): 5830 articles -> **12652 colour-rows**, 0 duplicates by
+  `ArticleUUID:ColorID`, 12593 unique by brand+name+colour (58 remaining
+  duplicate groups, likely more of the same old/new-numbering-scheme
+  dupes seen above). 12652 is the number that belongs in the
+  apples-to-apples table, not 5830 or 8050 - it slots in as the
+  second-smallest of the six sites now measured, above loplabbet.
 - **sportoutlet.no's API blocks plain `requests` calls from GitHub
   Actions runners but not from Cloud Run.** The first `product_cards.py
   sportoutlet` run on a GitHub-hosted runner hard-timed-out (30s TCP
