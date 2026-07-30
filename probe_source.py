@@ -266,6 +266,26 @@ def main() -> None:
                 except Exception as exc:
                     print(f"  failed: {exc}")
 
+            print("\n--- all rendered product-tile-ish links (first 25 distinct path shapes) ---")
+            # The articles/search API's product records carry no url/slug
+            # field, so the product detail page pattern (if any) has to be
+            # found in the live DOM instead - broader than the header/nav
+            # anchors already dumped below.
+            all_links = page.eval_on_selector_all(
+                "a[href]",
+                "els => els.map(e => e.getAttribute('href'))",
+            )
+            seen_shapes: dict = {}
+            for href in all_links:
+                if not href or href.startswith(("http://", "https://", "#", "mailto:", "tel:")):
+                    if href and "sportoutlet.no" not in href:
+                        continue
+                parts = [p for p in href.split("?")[0].split("/") if p]
+                shape = f"/{parts[0]}/..." if len(parts) > 1 else href
+                seen_shapes.setdefault(shape, href)
+            for shape, example in list(seen_shapes.items())[:25]:
+                print(f"  {shape}  (e.g. {example})")
+
             print("\n--- rendered <script id=\"json-ld-*\"> blobs ---")
             # Some frameworks inject JSON-LD client-side after hydration
             # (id="json-ld-items-list" etc.) - it won't be in the raw
