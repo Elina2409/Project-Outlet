@@ -57,6 +57,24 @@ JSON; sizes come from `hasVariant[].size` - confirmed size stays on one
 page (`variesBy: ["https://schema.org/size"]`), same as every other site
 here, so page count is directly SKU-comparable across all five sites.
 
+sportoutlet (verified via probe_source.py, 2026-07-30): no per-product
+crawl at all - there's no sitemap of product pages, and no product
+detail page seems to exist (no url/slug field on any article record,
+and no product-tile links anywhere in the rendered DOM). Instead reads
+the WHOLE catalog directly from the site's own Elasticsearch-backed
+search API (POST /api/v1/articles/search, paginated via take/page,
+empty "filters" returns everything): hits.total is the site's own
+exact, deduplicated count - 5830, notably below the 8050 you get by
+summing scrapers/sportoutlet.py's per-category articlesCount, which
+double-counts articles cross-listed in more than one category. The API
+needs a Laravel CSRF double-submit: a plain GET first to receive the
+XSRF-TOKEN cookie, then echo its (URL-decoded) value back as the
+X-XSRF-TOKEN header on the POST, or every call 419s. ArticleUUID is the
+dedupe key (same id format as the product image CDN path); brand comes
+from ProductLine. The `url` column is left blank for this site - there
+is nothing real to put there, and guessing one would violate this
+project's "never guess a URL" rule.
+
 Writes one row per product page to data/product_cards_<site>.csv
 (committed by the scrape workflow when dispatched with the
 product_cards input) and prints a dedupe summary: unique pages vs
@@ -74,6 +92,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from urllib.parse import unquote
 
 import requests
 
@@ -226,6 +245,60 @@ PRODUCT_URLS = {
     },
 }
 
+SPORTOUTLET_BASE = "https://sportoutlet.no"
+SPORTOUTLET_SEARCH_URL = f"{SPORTOUTLET_BASE}/api/v1/articles/search"
+
+
+def _sportoutlet_csrf_token(session: requests.Session) -> str:
+    """Laravel's CSRF double-submit: any page load sets an XSRF-TOKEN
+    cookie that must be echoed back as the X-XSRF-TOKEN header on POSTs,
+    or /api/v1/articles/search returns 419 (verified via probe_source.py,
+    2026-07-30)."""
+    session.get(SPORTOUTLET_BASE, timeout=30)
+    token = session.cookies.get("XSRF-TOKEN")
+    if not token:
+        raise RuntimeError("sportoutlet.no set no XSRF-TOKEN cookie - can't call articles/search")
+    return unquote(token)
+
+
+def fetch_cards_sportoutlet(session: requests.Session) -> list[dict]:
+    """Every article straight from the site's own search API - see the
+    module docstring's sportoutlet section for why there's no per-page
+    crawl here. Paginates with take/page until a page comes back short."""
+    headers = {"content-type": "application/json",
+               "X-XSRF-TOKEN": _sportoutlet_csrf_token(session)}
+    rows: list[dict] = []
+    page_num = 0
+    take = 1000
+    total = None
+    while True:
+        resp = session.post(
+            SPORTOUTLET_SEARCH_URL,
+            json={"query": "", "take": take, "page": page_num, "filters": ""},
+            headers=headers, timeout=60,
+        )
+        resp.raise_for_status()
+        hits = resp.json().get("hits", {})
+        if total is None:
+            total = hits.get("total", {}).get("value")
+            print(f"articles.hits.total (site-reported, deduplicated): {total}")
+        batch = hits.get("hits", [])
+        if not batch:
+            break
+        for hit in batch:
+            source = hit.get("_source", {})
+            rows.append({
+                "url": "",
+                "brand": source.get("ProductLine") or "",
+                "name": source.get("Name") or "",
+                "sizes": "",
+                "image_article": str(source.get("ArticleUUID") or source.get("ArticleID") or ""),
+                "status": "ok",
+            })
+        print(f"  ... fetched page {page_num} ({len(rows)} articles so far)", flush=True)
+        page_num += 1
+    return rows
+
 
 def fetch_card(session: requests.Session, site: str, url: str,
                total: int, delay: float) -> dict:
@@ -335,8 +408,9 @@ def summarize(rows: list[dict]) -> None:
 
 
 def main() -> None:
+    all_sites = sorted(set(PRODUCT_URLS) | {"sportoutlet"})
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("site", choices=sorted(PRODUCT_URLS))
+    parser.add_argument("site", choices=all_sites)
     parser.add_argument("--workers", type=int, default=0,
                         help="parallel workers (default: per-site tuning)")
     parser.add_argument("--delay", type=float, default=-1.0,
@@ -344,22 +418,32 @@ def main() -> None:
     parser.add_argument("--limit", type=int, default=0,
                         help="crawl only the first N product pages (smoke test)")
     args = parser.parse_args()
-    workers = args.workers or SITE_TUNING[args.site][0]
-    delay = args.delay if args.delay >= 0 else SITE_TUNING[args.site][1]
 
     session = requests.Session()
     session.headers["User-Agent"] = USER_AGENT
 
-    urls = PRODUCT_URLS[args.site](session)
-    print(f"product URLs from sitemap: {len(urls)}")
-    if args.limit:
-        urls = urls[: args.limit]
-        print(f"limited to first {len(urls)}")
+    if args.site == "sportoutlet":
+        # No per-page crawl for this site - see the module docstring.
+        # One session, a handful of paginated API calls: no thread pool,
+        # no per-site delay tuning needed.
+        rows = fetch_cards_sportoutlet(session)
+        if args.limit:
+            rows = rows[: args.limit]
+            print(f"limited to first {len(rows)}")
+    else:
+        workers = args.workers or SITE_TUNING[args.site][0]
+        delay = args.delay if args.delay >= 0 else SITE_TUNING[args.site][1]
 
-    with ThreadPoolExecutor(max_workers=workers) as pool:
-        rows = list(pool.map(
-            lambda u: fetch_card(session, args.site, u, len(urls), delay), urls
-        ))
+        urls = PRODUCT_URLS[args.site](session)
+        print(f"product URLs from sitemap: {len(urls)}")
+        if args.limit:
+            urls = urls[: args.limit]
+            print(f"limited to first {len(urls)}")
+
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            rows = list(pool.map(
+                lambda u: fetch_card(session, args.site, u, len(urls), delay), urls
+            ))
 
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     out = DATA_DIR / f"product_cards_{args.site}.csv"
