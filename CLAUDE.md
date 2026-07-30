@@ -279,7 +279,27 @@ several categories).
   echo its (URL-decoded) value back as the `X-XSRF-TOKEN` header on the
   POST, or every call 419s. Full crawl (2026-07-30): 5830 articles, 0
   failures; 5830 unique by ArticleUUID (0 duplicates); 5719 unique by
-  brand+name (92 duplicate groups, mostly sock/accessory multi-packs).
+  brand+name (92 duplicate groups - see the granularity gotcha below for
+  what these turned out to be).
+- **sportoutlet.no's 5830 is NOT apples-to-apples with the other five
+  sites' "page count = colour-variant count" metric.** Checked by
+  fetching full `_source` records (not just keys) for three of the 92
+  brand+name duplicate groups via `articles/search`'s free-text `query`
+  field (`probe_source.py`, 2026-07-30): (1) a single article record
+  routinely bundles *several colours* in its own `colors` array - "Mallorca
+  3-Pack Sock Low Cut" (ArticleID 69483) lists **19** colours on one
+  record - so one ArticleUUID is closer to "product model" than "colour
+  variant", coarser than every other site here. (2) at least some of the
+  92 "duplicate" groups are genuine duplicate catalog entries, not
+  distinct products: "Avery Quarter sock 3-pack" appears as both
+  ArticleNo `50001-E133620SO` and `133620` (same name, same two colours,
+  different numbering-scheme format - reads as old/new system rows never
+  merged), and "Little Viking Crab Combo" appears with colours
+  `[Green, Fuchsia]` on one record and `[Grønn, Rosa]` (the same two
+  colours in Norwegian) on the other. So 5830 is a genuine dedup of
+  *search-index documents*, but not a count of anything comparable to
+  the other sites' colour-variant page counts - don't add it to the
+  apples-to-apples table above.
 - **sportoutlet.no's API blocks plain `requests` calls from GitHub
   Actions runners but not from Cloud Run.** The first `product_cards.py
   sportoutlet` run on a GitHub-hosted runner hard-timed-out (30s TCP
