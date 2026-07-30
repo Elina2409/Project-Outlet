@@ -96,7 +96,7 @@ from urllib.parse import unquote
 
 import requests
 
-from scrapers._common import USER_AGENT
+from scrapers._common import USER_AGENT, browser_page
 from scrapers.fjellsport import SITEMAP_INDEX_URL, _SITEMAP_LOC_RE
 
 DATA_DIR = Path(__file__).resolve().parent / "data"
@@ -249,35 +249,40 @@ SPORTOUTLET_BASE = "https://sportoutlet.no"
 SPORTOUTLET_SEARCH_URL = f"{SPORTOUTLET_BASE}/api/v1/articles/search"
 
 
-def _sportoutlet_csrf_token(session: requests.Session) -> str:
+def _sportoutlet_csrf_token(page) -> str:
     """Laravel's CSRF double-submit: any page load sets an XSRF-TOKEN
     cookie that must be echoed back as the X-XSRF-TOKEN header on POSTs,
     or /api/v1/articles/search returns 419 (verified via probe_source.py,
-    2026-07-30)."""
-    session.get(SPORTOUTLET_BASE, timeout=30)
-    token = session.cookies.get("XSRF-TOKEN")
-    if not token:
-        raise RuntimeError("sportoutlet.no set no XSRF-TOKEN cookie - can't call articles/search")
-    return unquote(token)
+    2026-07-30). A plain `requests` GET here gets a hard 30s connect
+    timeout from GitHub Actions runners (verified 2026-07-30) even though
+    Cloud Run reaches it fine every time - reads as a TLS/client
+    fingerprint block, so this goes through a real Playwright browser
+    context instead, same as scrapers/sportoutlet.py's existing API call."""
+    page.request.get(SPORTOUTLET_BASE, timeout=30000)
+    for cookie in page.context.cookies():
+        if cookie["name"] == "XSRF-TOKEN":
+            return unquote(cookie["value"])
+    raise RuntimeError("sportoutlet.no set no XSRF-TOKEN cookie - can't call articles/search")
 
 
-def fetch_cards_sportoutlet(session: requests.Session) -> list[dict]:
+def fetch_cards_sportoutlet(page) -> list[dict]:
     """Every article straight from the site's own search API - see the
     module docstring's sportoutlet section for why there's no per-page
     crawl here. Paginates with take/page until a page comes back short."""
     headers = {"content-type": "application/json",
-               "X-XSRF-TOKEN": _sportoutlet_csrf_token(session)}
+               "X-XSRF-TOKEN": _sportoutlet_csrf_token(page)}
     rows: list[dict] = []
     page_num = 0
     take = 1000
     total = None
     while True:
-        resp = session.post(
+        resp = page.request.post(
             SPORTOUTLET_SEARCH_URL,
-            json={"query": "", "take": take, "page": page_num, "filters": ""},
-            headers=headers, timeout=60,
+            data=json.dumps({"query": "", "take": take, "page": page_num, "filters": ""}),
+            headers=headers, timeout=60000,
         )
-        resp.raise_for_status()
+        if not resp.ok:
+            raise RuntimeError(f"articles/search returned HTTP {resp.status}")
         hits = resp.json().get("hits", {})
         if total is None:
             total = hits.get("total", {}).get("value")
@@ -419,18 +424,20 @@ def main() -> None:
                         help="crawl only the first N product pages (smoke test)")
     args = parser.parse_args()
 
-    session = requests.Session()
-    session.headers["User-Agent"] = USER_AGENT
-
     if args.site == "sportoutlet":
         # No per-page crawl for this site - see the module docstring.
-        # One session, a handful of paginated API calls: no thread pool,
-        # no per-site delay tuning needed.
-        rows = fetch_cards_sportoutlet(session)
+        # Goes through a real browser context (not plain `requests`) -
+        # GitHub Actions runners hard-timeout connecting to sportoutlet.no
+        # otherwise (verified 2026-07-30), while Cloud Run reaches it fine
+        # every time, which reads as a TLS/client fingerprint block.
+        with browser_page() as page:
+            rows = fetch_cards_sportoutlet(page)
         if args.limit:
             rows = rows[: args.limit]
             print(f"limited to first {len(rows)}")
     else:
+        session = requests.Session()
+        session.headers["User-Agent"] = USER_AGENT
         workers = args.workers or SITE_TUNING[args.site][0]
         delay = args.delay if args.delay >= 0 else SITE_TUNING[args.site][1]
 

@@ -35,7 +35,10 @@ jobs:
       - name: Install dependencies
         run: |
           pip install -r requirements.txt
-          if [ -z "${{ inputs.product_cards }}" ]; then
+          # sportoutlet's product crawl needs a real browser too (see
+          # product_cards.py) - every other product_cards site is plain
+          # HTTP and skips this.
+          if [ -z "${{ inputs.product_cards }}" ] || [ "${{ inputs.product_cards }}" = "sportoutlet" ]; then
             playwright install --with-deps chromium
           fi
 
