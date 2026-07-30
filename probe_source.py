@@ -68,6 +68,20 @@ def main() -> None:
     terms = sys.argv[2:]
 
     with browser_page() as page:
+        seen_responses: list = []
+
+        def on_response(response) -> None:
+            ctype = response.headers.get("content-type", "")
+            if "json" not in ctype:
+                return
+            try:
+                body = response.text()
+            except Exception:
+                return
+            seen_responses.append((response.url, response.status, body))
+
+        page.on("response", on_response)
+
         raw = page.request.get(url).text()
         print(f"=== raw source: {url} ({len(raw)} chars) ===")
 
@@ -150,6 +164,25 @@ def main() -> None:
             page.goto(url, wait_until="domcontentloaded")
             dismiss_cookie_banner(page)
             page.wait_for_timeout(3000)
+
+            print("\n--- JSON API responses seen while rendering ---")
+            # Same idea as the xxl scraper's Apptus interception, but
+            # generic: catches whatever API the page itself calls (a
+            # products/search/feed endpoint, not just the categories one).
+            if not seen_responses:
+                print("  (none)")
+            for resp_url, status, body in seen_responses[:20]:
+                print(f"  {status} {resp_url} ({len(body)} chars)")
+                try:
+                    data = json.loads(body)
+                except Exception:
+                    continue
+                if isinstance(data, dict):
+                    print(f"    top-level keys: {list(data)[:20]}")
+                elif isinstance(data, list):
+                    print(f"    top-level list, length={len(data)}")
+                    if data and isinstance(data[0], dict):
+                        print(f"    first item keys: {list(data[0])[:20]}")
 
             print("\n--- rendered <script id=\"json-ld-*\"> blobs ---")
             # Some frameworks inject JSON-LD client-side after hydration
