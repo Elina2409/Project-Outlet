@@ -277,7 +277,7 @@ def main() -> None:
                     try:
                         replay = page.request.post(
                             "https://sportoutlet.no/api/v1/articles/search",
-                            data=json.dumps({"query": probe_query, "take": 20, "page": 0, "filters": ""}),
+                            data=json.dumps({"query": probe_query, "take": 5, "page": 0, "filters": ""}),
                             headers={"content-type": "application/json", "X-XSRF-TOKEN": decoded},
                         )
                         replay_data = json.loads(replay.text())
