@@ -78,7 +78,11 @@ def main() -> None:
                 body = response.text()
             except Exception:
                 return
-            seen_responses.append((response.url, response.status, body))
+            request = response.request
+            seen_responses.append((
+                response.url, response.status, body,
+                request.method, request.post_data,
+            ))
 
         page.on("response", on_response)
 
@@ -171,8 +175,10 @@ def main() -> None:
             # products/search/feed endpoint, not just the categories one).
             if not seen_responses:
                 print("  (none)")
-            for resp_url, status, body in seen_responses[:20]:
-                print(f"  {status} {resp_url} ({len(body)} chars)")
+            for resp_url, status, body, method, post_data in seen_responses[:20]:
+                print(f"  {method} {status} {resp_url} ({len(body)} chars)")
+                if post_data:
+                    print(f"    post_data: {post_data[:500]!r}")
                 try:
                     data = json.loads(body)
                 except Exception:
