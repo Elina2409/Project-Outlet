@@ -92,10 +92,26 @@ several categories).
   Vintersport; Merker/Nyheter(kolleksjon)/Kampanjer/Outlet excluded as
   cross-cutting. No known whole-catalog page → `all` is an error row by
   design.
-- `antonsport` — `NotImplementedError` stub.
-  Check for a catalog API in the browser Network tab first (filter
-  "api"); only fall back to DOM counting via the helpers in
-  `_common.py`.
+- `antonsport` — `NotImplementedError` stub, and likely to stay one.
+  The main frontend (`www.antonsport.no`) sits behind Cloudflare
+  Turnstile (`challenges.cloudflare.com/turnstile/v0/api.js` preloaded
+  in `<head>`) — confirmed via a user-pasted View Source dump of
+  `/klaer`, since automated Cloud Run requests to the homepage and
+  `/robots.txt` both come back as an identical blank 31032-char Next.js
+  SPA shell (no nav, no body text) rather than the real page. That same
+  page source revealed a separate backend API subdomain
+  (`"apiUrl":"https://api.antonsport.no/api"`, OData-style, e.g.
+  `/api/v4/products?$filter=...&$orderby=...`) and a real site-reported
+  category total (`itemsTotal: 6098` for Klær) — but probing that API
+  directly (2026-07-30) got silent 30s timeouts on both a well-formed
+  filtered query and the bare `/api/v4/products` endpoint, while a
+  malformed query (stray `$` stripped by shell interpolation) got a fast
+  but useless 364-char reply. That pattern (clean requests hang, broken
+  ones return fast) reads as WAF/bot-mitigation tarpitting, not a slow
+  backend — so the API is presumed protected too. Per project policy,
+  Claude does not attempt to bypass or evade Cloudflare Turnstile /
+  WAF challenges. Any further progress needs user-side data (manual
+  View Source / DevTools capture per category), not automated probing.
 
 ## Hard-won gotchas — read before debugging
 
@@ -223,6 +239,21 @@ several categories).
 - **Cloud Run containers are ephemeral** — the CSV written there is
   discarded. Persistence lives on the GitHub-runner path (bot commits);
   the GCP path is for log-based trial and error only.
+- **`probe_url` workflow inputs go through bash double-quote
+  interpolation before reaching `probe_source.py`.** A raw `$` in a
+  probe URL (e.g. OData `$filter=`/`$orderby=`) is read as a shell
+  variable reference and silently expands to empty — `?$filter=X` becomes
+  `?=X`. URL-encode it as `%24` in the `probe_url` input, or the probe
+  will silently fetch the wrong URL with no error (learned the hard way
+  probing antonsport's API, 2026-07-30).
+- **antonsport.no's backend API subdomain is presumed Cloudflare/WAF-
+  protected too, not just the main frontend.** Well-formed requests to
+  `api.antonsport.no/api/v4/products` (both filtered and bare) hang for
+  the full 30s Playwright timeout with zero response; a malformed query
+  to the same path returned in seconds (364 useless chars). Hanging on
+  clean requests while broken ones return fast is a WAF-tarpit
+  signature, not backend slowness — treat this domain as blocked from
+  automated access, same as `www.antonsport.no`.
 
 ## The debug loop (reuse it)
 
@@ -252,7 +283,7 @@ For a different egress network or heavier iteration, dispatch
 
 - `sportoutlet` — sportoutlet.no (API-based, categories + all)
 - `xxl` — xxl.no (intercepted eSales API, categories + all)
-- `antonsport` — antonsport.no (stub)
+- `antonsport` — antonsport.no (stub; both the frontend and its `api.antonsport.no` backend appear Cloudflare/WAF-protected against automated access)
 - `intersport` — intersport.no (rendered "N PRODUKTER" body text, per-category only; no site-wide total)
 - `sport1` — sport1.no (rendered "N produkter" label, per-category only; no site-wide total)
 - `fjellsport` — fjellsport.no (embedded productCount tree in homepage source; deduplicated site total from the product sitemap)
