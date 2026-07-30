@@ -284,7 +284,13 @@ def main() -> None:
                         hits = replay_data.get("hits", {}).get("hits", [])
                         print(f"  query={probe_query!r}: {len(hits)} hits")
                         for hit in hits:
-                            print(f"    {json.dumps(hit.get('_source', {}), ensure_ascii=False)}")
+                            # Cloud Run's log router promotes stdout lines
+                            # that parse as pure JSON to jsonPayload instead
+                            # of textPayload, and the workflow only reads
+                            # textPayload back - a bare json.dumps() line
+                            # here comes back silently blank. The "SRC "
+                            # prefix keeps it plain text.
+                            print(f"    SRC {json.dumps(hit.get('_source', {}), ensure_ascii=False)}")
                     except Exception as exc:
                         print(f"  query={probe_query!r} failed: {exc}")
 
