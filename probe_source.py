@@ -266,6 +266,28 @@ def main() -> None:
                 except Exception as exc:
                     print(f"  failed: {exc}")
 
+            if csrf_cookie and any(r[0].endswith("/api/v1/articles/search") for r in seen_responses):
+                print("\n--- full _source of a known duplicate-name group (colour variant or true dupe?) ---")
+                # product_cards.py sportoutlet crawl (2026-07-30) found 92
+                # brand+name duplicate groups but the API's article record
+                # has no visible Color field - dump every field of every
+                # hit for one such group to see what actually differs.
+                decoded = urllib.parse.unquote(csrf_cookie["value"])
+                for probe_query in terms or ["avery quarter sock 3-pack"]:
+                    try:
+                        replay = page.request.post(
+                            "https://sportoutlet.no/api/v1/articles/search",
+                            data=json.dumps({"query": probe_query, "take": 20, "page": 0, "filters": ""}),
+                            headers={"content-type": "application/json", "X-XSRF-TOKEN": decoded},
+                        )
+                        replay_data = json.loads(replay.text())
+                        hits = replay_data.get("hits", {}).get("hits", [])
+                        print(f"  query={probe_query!r}: {len(hits)} hits")
+                        for hit in hits:
+                            print(f"    {json.dumps(hit.get('_source', {}), ensure_ascii=False)}")
+                    except Exception as exc:
+                        print(f"  query={probe_query!r} failed: {exc}")
+
             print("\n--- all rendered product-tile-ish links (first 25 distinct path shapes) ---")
             # The articles/search API's product records carry no url/slug
             # field, so the product detail page pattern (if any) has to be
