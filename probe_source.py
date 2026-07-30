@@ -185,10 +185,50 @@ def main() -> None:
                     continue
                 if isinstance(data, dict):
                     print(f"    top-level keys: {list(data)[:20]}")
+                    hits = data.get("hits")
+                    if isinstance(hits, dict):
+                        # Elasticsearch-shaped response envelope.
+                        inner_hits = hits.get("hits")
+                        print(f"    hits.total: {hits.get('total')!r}")
+                        if isinstance(inner_hits, list):
+                            print(f"    hits.hits length: {len(inner_hits)}")
+                            if inner_hits and isinstance(inner_hits[0], dict):
+                                print(f"    hits.hits[0] keys: {list(inner_hits[0])[:20]}")
+                                source = inner_hits[0].get("_source")
+                                if isinstance(source, dict):
+                                    print(f"    hits.hits[0]._source keys: {list(source)[:25]}")
                 elif isinstance(data, list):
                     print(f"    top-level list, length={len(data)}")
                     if data and isinstance(data[0], dict):
                         print(f"    first item keys: {list(data[0])[:20]}")
+
+            print("\n--- replaying captured POST requests via plain HTTP ---")
+            # Checks whether a POST API call seen during render also works
+            # as a direct fetch (no browser/session needed) - the same
+            # shortcut sportoutlet's existing /api/v1/categories scraper
+            # already relies on.
+            replayed: set = set()
+            for resp_url, _status, _body, method, post_data in seen_responses:
+                if method != "POST" or resp_url in replayed:
+                    continue
+                replayed.add(resp_url)
+                try:
+                    replay = page.request.post(
+                        resp_url,
+                        data=post_data or "",
+                        headers={"content-type": "application/json"},
+                    )
+                    replay_body = replay.text()
+                    print(f"  POST {resp_url} -> {replay.status} ({len(replay_body)} chars)")
+                    try:
+                        replay_data = json.loads(replay_body)
+                        rhits = replay_data.get("hits") if isinstance(replay_data, dict) else None
+                        if isinstance(rhits, dict):
+                            print(f"    hits.total: {rhits.get('total')!r}")
+                    except Exception:
+                        pass
+                except Exception as exc:
+                    print(f"  POST {resp_url} -> failed: {exc}")
 
             print("\n--- rendered <script id=\"json-ld-*\"> blobs ---")
             # Some frameworks inject JSON-LD client-side after hydration
