@@ -131,6 +131,34 @@ def main() -> None:
             dismiss_cookie_banner(page)
             page.wait_for_timeout(3000)
 
+            print("\n--- rendered <script id=\"json-ld-*\"> blobs ---")
+            # Some frameworks inject JSON-LD client-side after hydration
+            # (id="json-ld-items-list" etc.) - it won't be in the raw
+            # HTTP source dumped above, only in the live DOM.
+            ld_scripts = page.eval_on_selector_all(
+                'script[id^="json-ld-"]',
+                "els => els.map(e => ({id: e.id, text: e.textContent}))",
+            )
+            if not ld_scripts:
+                print("  (none found)")
+            for entry in ld_scripts:
+                text = entry["text"] or ""
+                print(f"  [{entry['id']}] len={len(text)}")
+                try:
+                    data = json.loads(text)
+                except Exception as exc:
+                    print(f"    (unparseable JSON: {exc}) peek: {' '.join(text[:200].split())!r}")
+                    continue
+                if isinstance(data, dict):
+                    print(f"    top-level keys: {list(data)[:20]}")
+                    if "numberOfItems" in data:
+                        print(f"    numberOfItems: {data['numberOfItems']}")
+                    item_list = data.get("itemListElement")
+                    if isinstance(item_list, list):
+                        print(f"    itemListElement length: {len(item_list)}")
+                else:
+                    print(f"    peek: {' '.join(text[:200].split())!r}")
+
             print("\n--- rendered nav links (header/nav anchors, first 40) ---")
             anchors = page.eval_on_selector_all(
                 "header a[href], nav a[href]",
