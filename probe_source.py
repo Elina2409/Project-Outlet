@@ -202,33 +202,55 @@ def main() -> None:
                     if data and isinstance(data[0], dict):
                         print(f"    first item keys: {list(data[0])[:20]}")
 
+            print("\n--- cookies after render (looking for CSRF token) ---")
+            cookies = page.context.cookies()
+            csrf_cookie = None
+            for cookie in cookies:
+                flag = ""
+                if "xsrf" in cookie["name"].lower() or "csrf" in cookie["name"].lower():
+                    csrf_cookie = cookie
+                    flag = "  <-- looks like a CSRF token"
+                print(f"  {cookie['name']}={cookie['value'][:40]!r}{flag}")
+
             print("\n--- replaying captured POST requests via plain HTTP ---")
             # Checks whether a POST API call seen during render also works
             # as a direct fetch (no browser/session needed) - the same
             # shortcut sportoutlet's existing /api/v1/categories scraper
-            # already relies on.
+            # already relies on. A 419 (Laravel's "CSRF token mismatch")
+            # means the cookie alone isn't enough - Laravel's
+            # double-submit pattern also needs the same token echoed back
+            # as a request header, so retry with that header set from
+            # whatever CSRF-looking cookie was found above.
+            import urllib.parse
+
             replayed: set = set()
             for resp_url, _status, _body, method, post_data in seen_responses:
                 if method != "POST" or resp_url in replayed:
                     continue
                 replayed.add(resp_url)
-                try:
-                    replay = page.request.post(
-                        resp_url,
-                        data=post_data or "",
-                        headers={"content-type": "application/json"},
-                    )
-                    replay_body = replay.text()
-                    print(f"  POST {resp_url} -> {replay.status} ({len(replay_body)} chars)")
+                header_variants = [{}]
+                if csrf_cookie:
+                    decoded = urllib.parse.unquote(csrf_cookie["value"])
+                    header_variants.append({"X-XSRF-TOKEN": decoded})
+                    header_variants.append({"X-CSRF-TOKEN": decoded})
+                for extra_headers in header_variants:
+                    headers = {"content-type": "application/json", **extra_headers}
                     try:
-                        replay_data = json.loads(replay_body)
-                        rhits = replay_data.get("hits") if isinstance(replay_data, dict) else None
-                        if isinstance(rhits, dict):
-                            print(f"    hits.total: {rhits.get('total')!r}")
-                    except Exception:
-                        pass
-                except Exception as exc:
-                    print(f"  POST {resp_url} -> failed: {exc}")
+                        replay = page.request.post(resp_url, data=post_data or "", headers=headers)
+                        replay_body = replay.text()
+                        label = f"headers={list(extra_headers) or 'none'}"
+                        print(f"  POST {resp_url} ({label}) -> {replay.status} ({len(replay_body)} chars)")
+                        try:
+                            replay_data = json.loads(replay_body)
+                            rhits = replay_data.get("hits") if isinstance(replay_data, dict) else None
+                            if isinstance(rhits, dict):
+                                print(f"    hits.total: {rhits.get('total')!r}")
+                        except Exception:
+                            pass
+                        if replay.status == 200:
+                            break
+                    except Exception as exc:
+                        print(f"  POST {resp_url} ({label}) -> failed: {exc}")
 
             print("\n--- rendered <script id=\"json-ld-*\"> blobs ---")
             # Some frameworks inject JSON-LD client-side after hydration
