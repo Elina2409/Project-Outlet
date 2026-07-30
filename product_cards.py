@@ -64,16 +64,22 @@ and no product-tile links anywhere in the rendered DOM). Instead reads
 the WHOLE catalog directly from the site's own Elasticsearch-backed
 search API (POST /api/v1/articles/search, paginated via take/page,
 empty "filters" returns everything): hits.total is the site's own
-exact, deduplicated count - 5830, notably below the 8050 you get by
-summing scrapers/sportoutlet.py's per-category articlesCount, which
-double-counts articles cross-listed in more than one category. The API
-needs a Laravel CSRF double-submit: a plain GET first to receive the
-XSRF-TOKEN cookie, then echo its (URL-decoded) value back as the
-X-XSRF-TOKEN header on the POST, or every call 419s. ArticleUUID is the
-dedupe key (same id format as the product image CDN path); brand comes
-from ProductLine. The `url` column is left blank for this site - there
-is nothing real to put there, and guessing one would violate this
-project's "never guess a URL" rule.
+exact, deduplicated count of ARTICLES - 5830, notably below the 8050
+you get by summing scrapers/sportoutlet.py's per-category
+articlesCount (which double-counts articles cross-listed in more than
+one category) - but that 5830 is article-level, not colour-level: one
+article's own `colors` array routinely bundles several colours (one
+record listed 19), unlike every other site here where each colour gets
+its own page. So this crawl unrolls `colors` into one row per colour -
+image_article is `ArticleUUID:ColorID`, and the colour name is folded
+into `name` - to make the row count comparable to the other five sites'
+page-count-is-colour-count metric; don't use the raw article total for
+that comparison. The API needs a Laravel CSRF double-submit: a plain
+GET first to receive the XSRF-TOKEN cookie, then echo its (URL-decoded)
+value back as the X-XSRF-TOKEN header on the POST, or every call 419s.
+The `url` column is left blank for this site - there is nothing real
+to put there, and guessing one would violate this project's "never
+guess a URL" rule.
 
 Writes one row per product page to data/product_cards_<site>.csv
 (committed by the scrape workflow when dispatched with the
@@ -268,10 +274,22 @@ def _sportoutlet_csrf_token(page) -> str:
 def fetch_cards_sportoutlet(page) -> list[dict]:
     """Every article straight from the site's own search API - see the
     module docstring's sportoutlet section for why there's no per-page
-    crawl here. Paginates with take/page until a page comes back short."""
+    crawl here. Paginates with take/page until a page comes back short.
+
+    One row per *colour*, not per article (verified via probe_source.py,
+    2026-07-30: a single article's own `colors` array routinely lists
+    several colours - one record had 19 - so the raw article count
+    (hits.total, 5830) is coarser than "colour variant" and NOT
+    comparable to the other five sites' page-count-is-colour-count
+    metric). Unrolling `colors` here is what makes the row count
+    apples-to-apples with them: image_article is ArticleUUID:ColorID
+    (unique per colour, same idea as the og:image-hash keys used
+    elsewhere) and the colour name is folded into `name`, matching how
+    the other sites' titles already read (colour as part of the name)."""
     headers = {"content-type": "application/json",
                "X-XSRF-TOKEN": _sportoutlet_csrf_token(page)}
     rows: list[dict] = []
+    article_count = 0
     page_num = 0
     take = 1000
     total = None
@@ -286,21 +304,34 @@ def fetch_cards_sportoutlet(page) -> list[dict]:
         hits = resp.json().get("hits", {})
         if total is None:
             total = hits.get("total", {}).get("value")
-            print(f"articles.hits.total (site-reported, deduplicated): {total}")
+            print(f"articles.hits.total (site-reported, article-level, NOT colour-level): {total}")
         batch = hits.get("hits", [])
         if not batch:
             break
         for hit in batch:
             source = hit.get("_source", {})
-            rows.append({
-                "url": "",
-                "brand": source.get("ProductLine") or "",
-                "name": source.get("Name") or "",
-                "sizes": "",
-                "image_article": str(source.get("ArticleUUID") or source.get("ArticleID") or ""),
-                "status": "ok",
-            })
-        print(f"  ... fetched page {page_num} ({len(rows)} articles so far)", flush=True)
+            article_count += 1
+            article_uuid = str(source.get("ArticleUUID") or source.get("ArticleID") or "")
+            brand = source.get("ProductLine") or ""
+            name = source.get("Name") or ""
+            colors = source.get("colors") or []
+            if not colors:
+                rows.append({"url": "", "brand": brand, "name": name,
+                             "sizes": "", "image_article": article_uuid, "status": "ok"})
+                continue
+            for color in colors:
+                color_name = color.get("Name") or color.get("name") or ""
+                color_id = color.get("ColorID") if color.get("ColorID") is not None else color.get("id")
+                rows.append({
+                    "url": "",
+                    "brand": brand,
+                    "name": f"{name}, {color_name}" if color_name else name,
+                    "sizes": "",
+                    "image_article": f"{article_uuid}:{color_id}" if color_id is not None else article_uuid,
+                    "status": "ok",
+                })
+        print(f"  ... fetched page {page_num} ({article_count} articles, "
+              f"{len(rows)} colour-rows so far)", flush=True)
         page_num += 1
     return rows
 
