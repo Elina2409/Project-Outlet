@@ -41,6 +41,26 @@ def _context(source: str, start: int, end: int, radius: int = 120) -> str:
     return " ".join(snippet.split())
 
 
+def _find_item_lists(node, path: str, out: list, _depth: int = 0) -> None:
+    """Recursively find schema.org nodes carrying numberOfItems /
+    itemListElement, wherever they're nested (e.g. under "mainEntity")."""
+    if _depth > 6:
+        return
+    if isinstance(node, dict):
+        if "numberOfItems" in node or "itemListElement" in node:
+            item_list = node.get("itemListElement")
+            out.append((path, {
+                "@type": node.get("@type"),
+                "numberOfItems": node.get("numberOfItems"),
+                "itemListElement_len": len(item_list) if isinstance(item_list, list) else None,
+            }))
+        for key, value in node.items():
+            _find_item_lists(value, f"{path}.{key}", out, _depth + 1)
+    elif isinstance(node, list):
+        for i, value in enumerate(node[:5]):  # cap: don't walk huge arrays
+            _find_item_lists(value, f"{path}[{i}]", out, _depth + 1)
+
+
 def main() -> None:
     if len(sys.argv) < 2:
         sys.exit("usage: python probe_source.py <url> [search-term ...]")
@@ -151,13 +171,17 @@ def main() -> None:
                     continue
                 if isinstance(data, dict):
                     print(f"    top-level keys: {list(data)[:20]}")
-                    if "numberOfItems" in data:
-                        print(f"    numberOfItems: {data['numberOfItems']}")
-                    item_list = data.get("itemListElement")
-                    if isinstance(item_list, list):
-                        print(f"    itemListElement length: {len(item_list)}")
                 else:
                     print(f"    peek: {' '.join(text[:200].split())!r}")
+                # numberOfItems/itemListElement are often nested (e.g. under
+                # "mainEntity" for a CollectionPage), not top-level - walk
+                # the whole structure rather than assume the shape.
+                hits: list = []
+                _find_item_lists(data, "$", hits)
+                for path, info in hits:
+                    print(f"    [{path}] @type={info.get('@type')!r} "
+                          f"numberOfItems={info.get('numberOfItems')!r} "
+                          f"itemListElement_len={info.get('itemListElement_len')!r}")
 
             print("\n--- rendered nav links (header/nav anchors, first 40) ---")
             anchors = page.eval_on_selector_all(
