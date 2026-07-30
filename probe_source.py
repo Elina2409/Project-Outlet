@@ -252,6 +252,20 @@ def main() -> None:
                     except Exception as exc:
                         print(f"  POST {resp_url} ({label}) -> failed: {exc}")
 
+            if csrf_cookie and any(r[0].endswith("/api/v1/articles/search") for r in seen_responses):
+                print("\n--- articles/search with an empty filter (whole catalog in one sweep?) ---")
+                decoded = urllib.parse.unquote(csrf_cookie["value"])
+                try:
+                    replay = page.request.post(
+                        "https://sportoutlet.no/api/v1/articles/search",
+                        data=json.dumps({"query": "", "take": 1, "page": 0, "filters": ""}),
+                        headers={"content-type": "application/json", "X-XSRF-TOKEN": decoded},
+                    )
+                    replay_data = json.loads(replay.text())
+                    print(f"  status={replay.status} hits.total={replay_data.get('hits', {}).get('total')!r}")
+                except Exception as exc:
+                    print(f"  failed: {exc}")
+
             print("\n--- rendered <script id=\"json-ld-*\"> blobs ---")
             # Some frameworks inject JSON-LD client-side after hydration
             # (id="json-ld-items-list" etc.) - it won't be in the raw
