@@ -44,7 +44,12 @@ several categories).
 - `sportoutlet` — GET https://sportoutlet.no/api/v1/categories. Main
   groups are dicts with `Name` + `articlesCount` and **no**
   `ArticleGroup2ID` (that key marks subgroups). `all` = sum over main
-  groups. No browser navigation needed at all.
+  groups (**cross-listed articles counted twice** - see gotchas: the
+  genuinely deduplicated total is 5830, not 8050). No browser navigation
+  needed for this call. Product-card duplicate detection doesn't crawl
+  pages at all (`product_cards.py sportoutlet`) - there's no per-product
+  URL to crawl (see gotchas), so it reads the site's own Elasticsearch-
+  backed search API directly instead.
 - `xxl` — data comes from the Apptus eSales storefront API
   (`*.api.esales.apptus.cloud`, landing-page/PLP query). Its URL embeds
   per-visitor `customerKey`/`sessionKey`, so never call it directly:
@@ -254,6 +259,39 @@ several categories).
   clean requests while broken ones return fast is a WAF-tarpit
   signature, not backend slowness — treat this domain as blocked from
   automated access, same as `www.antonsport.no`.
+- **sportoutlet.no's `all` total (8050, summed from `articlesCount` per
+  main group) double-counts cross-listed articles.** Discovered by
+  intercepting the site's own product-listing calls (`probe_source.py`,
+  extended to log JSON XHR/fetch responses seen during render, 2026-07-30):
+  category pages call `POST /api/v1/articles/search`, a direct
+  Elasticsearch-backed search endpoint (`took`/`timed_out`/`_shards`/
+  `hits` response shape). An empty `"filters"` string returns the WHOLE
+  catalog in one paginated sweep (`take`/`page`), and `hits.total` is the
+  site's own exact, deduplicated count: **5830**, not 8050. Each hit's
+  `_source` is a full article record (`ArticleID`, `ArticleUUID`, `Name`,
+  `ProductLine`, prices, ...) but carries **no url/slug field** - and no
+  product-tile links turned up anywhere in the rendered DOM either, so
+  individual products likely have no dedicated detail page at all.
+  `product_cards.py sportoutlet` therefore reads this API directly
+  instead of crawling pages, and leaves the `url` column blank (real
+  data beats a guessed URL). Calling the endpoint needs Laravel's CSRF
+  double-submit: a GET first to receive the `XSRF-TOKEN` cookie, then
+  echo its (URL-decoded) value back as the `X-XSRF-TOKEN` header on the
+  POST, or every call 419s. Full crawl (2026-07-30): 5830 articles, 0
+  failures; 5830 unique by ArticleUUID (0 duplicates); 5719 unique by
+  brand+name (92 duplicate groups, mostly sock/accessory multi-packs).
+- **sportoutlet.no's API blocks plain `requests` calls from GitHub
+  Actions runners but not from Cloud Run.** The first `product_cards.py
+  sportoutlet` run on a GitHub-hosted runner hard-timed-out (30s TCP
+  connect, not an HTTP error) hitting `sportoutlet.no` with Python's
+  `requests` library, while every one of this session's Cloud Run probes
+  reached the same host instantly through a real Playwright browser
+  context. Reads as a TLS/client-fingerprint block rather than a network
+  route problem. Fixed by routing sportoutlet's crawl through
+  `scrapers._common.browser_page()` (`page.request.get/post`) instead of
+  `requests.Session()`, matching what `scrapers/sportoutlet.py`'s own API
+  call already did - `scrape-sku.yml` now installs Playwright for this
+  one `product_cards` site too.
 
 ## The debug loop (reuse it)
 
